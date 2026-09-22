@@ -119,7 +119,7 @@ import Layout from '../layouts/Layout.astro';
     tabs.innerHTML = resumenes
       .map(
         (r, i) =>
-          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(r.columna.titulo)}">${esc(r.columna.corto || r.columna.titulo)}<span class="tab-n">${fmt(r.emitidos)}</span></button>`,
+          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(r.columna.titulo)}"><span class="tab-et">${esc(r.columna.corto || r.columna.titulo)}</span><span class="tab-n">${fmt(r.emitidos)}</span></button>`,
       )
       .join('');
 

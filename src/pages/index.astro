@@ -130,7 +130,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     tabs.innerHTML = d.columnas
       .map(
         (col, i) =>
-          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(col.titulo)}">${esc(col.corto || col.titulo)}<span class="tab-n" data-tt="${esc(col.id)}"></span></button>`,
+          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(col.titulo)}"><span class="tab-et">${esc(col.corto || col.titulo)}</span><span class="tab-n" data-tt="${esc(col.id)}"></span></button>`,
       )
       .join('');
 

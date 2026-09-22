@@ -358,6 +358,11 @@ select {
   gap: 8px;
 }
 
+/* Ningún bloque puede ensanchar la página (evita scroll horizontal). */
+.container > * {
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
   .container {
     padding: 8px 10px 16px;
@@ -770,8 +775,9 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 .tabs button {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
   height: 32px;
   display: flex;
   align-items: center;
@@ -794,7 +800,14 @@ input[type='number']::-webkit-outer-spin-button {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
 }
 
+.tab-et {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .tab-n {
+  flex-shrink: 0;
   min-width: 20px;
   height: 18px;
   padding: 0 6px;
@@ -810,6 +823,26 @@ input[type='number']::-webkit-outer-spin-button {
 .tab-n.warn {
   background: var(--warn-soft);
   color: var(--warn);
+}
+
+/* En celulares angostos el total va debajo, para que el nombre se lea completo. */
+@media (max-width: 400px) {
+  .tabs button {
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 1px;
+    height: 40px;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1.1;
+  }
+
+  .tab-n {
+    height: 16px;
+    padding: 0 6px;
+    font-size: 10.5px;
+    line-height: 16px;
+  }
 }
 
 @media (min-width: 1024px) {
