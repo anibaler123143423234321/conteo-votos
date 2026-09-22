@@ -1,0 +1,192 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Resultados">
+  <section class="card">
+    <div class="page-head">
+      <h1>Resultados</h1>
+      <span class="muted" id="progreso"></span>
+    </div>
+    <div class="grid-3">
+      <label>Colegio <select id="f-colegio"></select></label>
+      <label>Aula <select id="f-aula"></select></label>
+      <label>Mesa <select id="f-mesa"></select></label>
+    </div>
+  </section>
+
+  <div class="resultados" id="resultados"></div>
+
+  <section class="card">
+    <h2>Datos</h2>
+    <p class="muted">
+      Todo se guarda en este navegador. Descarga un respaldo de vez en cuando para no perder el
+      conteo o para pasarlo a otra computadora.
+    </p>
+    <div class="acciones">
+      <button type="button" class="btn" id="csv">Descargar CSV (Excel)</button>
+      <button type="button" class="btn" id="json">Descargar respaldo</button>
+      <button type="button" class="btn" id="importar">Cargar respaldo</button>
+      <input type="file" id="archivo" accept=".json,application/json" hidden />
+      <button type="button" class="btn danger" id="borrar-votos">Borrar votos</button>
+      <button type="button" class="btn danger" id="borrar-todo">Borrar todo</button>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import {
+    BLANCO,
+    NULO,
+    cargar,
+    datosIniciales,
+    descargar,
+    esDatos,
+    esc,
+    fmt,
+    guardar,
+    mesaContada,
+    mesas,
+    opciones,
+    pct,
+    resumen,
+    votosDe,
+    type Datos,
+  } from '../lib/store';
+
+  let d: Datos = cargar();
+  let f = { colegio: '', aula: '', mesa: '' };
+
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fColegio = $<HTMLSelectElement>('f-colegio');
+  const fAula = $<HTMLSelectElement>('f-aula');
+  const fMesa = $<HTMLSelectElement>('f-mesa');
+  const archivo = $<HTMLInputElement>('archivo');
+
+  function pintar() {
+    const colegio = d.colegios.find((x) => x.id === f.colegio);
+    const aula = colegio?.aulas.find((x) => x.id === f.aula);
+    const mesa = aula?.mesas.find((x) => x.id === f.mesa);
+    f = { colegio: colegio?.id ?? '', aula: aula?.id ?? '', mesa: mesa?.id ?? '' };
+
+    opciones(fColegio, [{ id: '', nombre: 'Todos los colegios' }, ...d.colegios], f.colegio);
+    opciones(fAula, [{ id: '', nombre: 'Todas las aulas' }, ...(colegio?.aulas ?? [])], f.aula);
+    opciones(
+      fMesa,
+      [
+        { id: '', nombre: 'Todas las mesas' },
+        ...(aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: `Mesa ${m.numero}` })),
+      ],
+      f.mesa,
+    );
+    fAula.disabled = !colegio;
+    fMesa.disabled = !aula;
+
+    const lista = mesas(d, f).map((u) => u.mesa);
+    const contadas = lista.filter((m) => mesaContada(d, m)).length;
+    $('progreso').textContent = `${contadas} de ${lista.length} mesas con votos`;
+
+    $('resultados').innerHTML = d.columnas
+      .map((col) => {
+        const r = resumen(col, lista);
+        const filas = [...r.filas].sort((a, b) => b.votos - a.votos);
+        const max = filas[0]?.votos ?? 0;
+        return `
+        <section class="card">
+          <h2>${esc(col.titulo)}</h2>
+          <table>
+            <thead><tr><th>Partido</th><th class="n">Votos</th><th class="n">%</th></tr></thead>
+            <tbody>
+              ${filas
+                .map(
+                  (x) => `
+                <tr class="${max > 0 && x.votos === max ? 'lider' : ''}">
+                  <td>${esc(x.partido.nombre)}<div class="barra"><span style="width:${max ? ((x.votos / max) * 100).toFixed(1) : 0}%"></span></div></td>
+                  <td class="n">${fmt(x.votos)}</td>
+                  <td class="n">${pct(x.votos, r.validos)}</td>
+                </tr>`,
+                )
+                .join('')}
+            </tbody>
+            <tfoot>
+              <tr><th>Votos válidos</th><td class="n">${fmt(r.validos)}</td><td class="n">${pct(r.validos, r.emitidos)}</td></tr>
+              <tr><th>Votos en blanco</th><td class="n">${fmt(r.blanco)}</td><td class="n">${pct(r.blanco, r.emitidos)}</td></tr>
+              <tr><th>Votos nulos</th><td class="n">${fmt(r.nulo)}</td><td class="n">${pct(r.nulo, r.emitidos)}</td></tr>
+              <tr class="total"><th>Total emitidos</th><td class="n">${fmt(r.emitidos)}</td><td></td></tr>
+            </tfoot>
+          </table>
+          <p class="nota">% de partidos sobre votos válidos; blanco, nulos y válidos sobre votos emitidos.</p>
+        </section>`;
+      })
+      .join('');
+  }
+
+  fColegio.addEventListener('change', () => {
+    f = { colegio: fColegio.value, aula: '', mesa: '' };
+    pintar();
+  });
+  fAula.addEventListener('change', () => {
+    f = { ...f, aula: fAula.value, mesa: '' };
+    pintar();
+  });
+  fMesa.addEventListener('change', () => {
+    f = { ...f, mesa: fMesa.value };
+    pintar();
+  });
+
+  const hoy = () => new Date().toISOString().slice(0, 10);
+
+  $('csv').addEventListener('click', () => {
+    const filas = [['Distrito', 'Colegio', 'Aula', 'Mesa', 'Columna', 'N°', 'Partido', 'Votos']];
+    for (const { colegio, aula, mesa } of mesas(d)) {
+      const base = [d.distrito, colegio.nombre, aula.nombre, mesa.numero];
+      for (const col of d.columnas) {
+        col.partidos.forEach((p, i) =>
+          filas.push([...base, col.titulo, String(i + 1), p.nombre, String(votosDe(mesa, col.id, p.id))]),
+        );
+        filas.push([...base, col.titulo, '', 'VOTOS EN BLANCO', String(votosDe(mesa, col.id, BLANCO))]);
+        filas.push([...base, col.titulo, '', 'VOTOS NULOS', String(votosDe(mesa, col.id, NULO))]);
+      }
+    }
+    const celda = (c: string) => (/[",\n\r]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
+    const texto = filas.map((r) => r.map(celda).join(',')).join('\r\n');
+    descargar(`conteo-votos-${hoy()}.csv`, '﻿' + texto, 'text/csv;charset=utf-8');
+  });
+
+  $('json').addEventListener('click', () => {
+    descargar(`conteo-votos-respaldo-${hoy()}.json`, JSON.stringify(d, null, 2), 'application/json');
+  });
+
+  $('importar').addEventListener('click', () => archivo.click());
+  archivo.addEventListener('change', async () => {
+    const file = archivo.files?.[0];
+    archivo.value = '';
+    if (!file) return;
+    try {
+      const nuevo = JSON.parse(await file.text());
+      if (!esDatos(nuevo)) throw new Error('formato');
+      if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
+      d = nuevo;
+      guardar(d);
+      pintar();
+    } catch {
+      alert('El archivo no es un respaldo válido del conteo de votos.');
+    }
+  });
+
+  $('borrar-votos').addEventListener('click', () => {
+    if (!confirm('¿Borrar los votos de todas las mesas? Los colegios, aulas, mesas y partidos se mantienen.')) return;
+    for (const { mesa } of mesas(d)) mesa.votos = {};
+    guardar(d);
+    pintar();
+  });
+
+  $('borrar-todo').addEventListener('click', () => {
+    if (!confirm('¿Borrar TODO (colegios, aulas, mesas, partidos y votos)? No se puede deshacer.')) return;
+    d = datosIniciales();
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>

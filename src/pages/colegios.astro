@@ -1,0 +1,203 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Colegios y mesas">
+  <section class="card">
+    <h1>1. Distrito</h1>
+    <div class="grid-3">
+      <label>Distrito <input id="distrito" autocomplete="off" /></label>
+      <label>Provincia <input id="provincia" autocomplete="off" /></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Nuevo colegio</h2>
+    <form class="form-colegio" id="form-colegio">
+      <label class="campo-nombre">
+        Nombre del colegio
+        <input name="nombre" required placeholder="Ej.: I.E. San Martín" autocomplete="off" />
+      </label>
+      <label>Cantidad de aulas <input name="aulas" type="number" min="1" max="200" value="1" required /></label>
+      <label>Mesas por aula <input name="mesas" type="number" min="1" max="50" value="1" required /></label>
+      <button class="btn primary">Agregar colegio</button>
+    </form>
+  </section>
+
+  <div class="page-head">
+    <h2>3. Aulas y mesas</h2>
+    <span class="muted" id="resumen"></span>
+  </div>
+  <div class="lista-colegios" id="lista"></div>
+</Layout>
+
+<script>
+  import {
+    cargar,
+    entero,
+    esc,
+    guardar,
+    mesaContada,
+    mesas,
+    numeradorMesas,
+    nuevaMesa,
+    uid,
+    type Aula,
+  } from '../lib/store';
+
+  const d = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const distrito = $<HTMLInputElement>('distrito');
+  const provincia = $<HTMLInputElement>('provincia');
+  const form = $<HTMLFormElement>('form-colegio');
+  const lista = $('lista');
+
+  const limitar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+
+  distrito.value = d.distrito;
+  provincia.value = d.provincia;
+  distrito.addEventListener('input', () => {
+    d.distrito = distrito.value.trim();
+    guardar(d);
+  });
+  provincia.addEventListener('input', () => {
+    d.provincia = provincia.value.trim();
+    guardar(d);
+  });
+
+  function pintar() {
+    const total = mesas(d).length;
+    const aulas = d.colegios.reduce((t, c) => t + c.aulas.length, 0);
+    $('resumen').textContent = `${d.colegios.length} colegios · ${aulas} aulas · ${total} mesas`;
+
+    if (!d.colegios.length) {
+      lista.innerHTML = '<p class="card empty">Todavía no hay colegios. Agrega el primero arriba.</p>';
+      return;
+    }
+
+    lista.innerHTML = d.colegios
+      .map(
+        (c) => `
+      <section class="card" data-c="${esc(c.id)}">
+        <div class="colegio-head">
+          <input class="input-titulo" data-f="colegio" value="${esc(c.nombre)}" aria-label="Nombre del colegio" />
+          <button type="button" class="btn danger" data-accion="quitar-colegio">Eliminar</button>
+        </div>
+        <div class="aulas">
+          ${c.aulas
+            .map(
+              (a) => `
+            <div class="aula" data-aula="${esc(a.id)}">
+              <label class="campo-aula">Aula <input data-f="aula" value="${esc(a.nombre)}" /></label>
+              <label class="campo-cant">Cantidad de mesas <input type="number" min="1" max="50" data-f="cantidad" value="${a.mesas.length}" /></label>
+              <div class="mesas-nums">
+                N° de mesa
+                <div class="chips">
+                  ${a.mesas.map((m) => `<input class="mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa" />`).join('')}
+                </div>
+              </div>
+              <button type="button" class="icon-btn danger" data-accion="quitar-aula" aria-label="Eliminar ${esc(a.nombre)}" title="Eliminar aula">✕</button>
+            </div>`,
+            )
+            .join('')}
+        </div>
+        <button type="button" class="btn" data-accion="agregar-aula">+ Agregar aula</button>
+      </section>`,
+      )
+      .join('');
+  }
+
+  function crearAula(nombre: string, cantidad: number, numero: () => string): Aula {
+    return { id: uid(), nombre, mesas: Array.from({ length: cantidad }, () => nuevaMesa(numero())) };
+  }
+
+  function ajustarMesas(a: Aula, cantidad: number) {
+    const n = limitar(cantidad, 1, 50);
+    if (n > a.mesas.length) {
+      const numero = numeradorMesas(d);
+      while (a.mesas.length < n) a.mesas.push(nuevaMesa(numero()));
+    } else if (n < a.mesas.length) {
+      const conVotos = a.mesas.slice(n).some((m) => mesaContada(d, m));
+      if (conVotos && !confirm('Algunas de las mesas que se quitarán ya tienen votos. ¿Quitarlas igual?')) return;
+      a.mesas.splice(n);
+    }
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const datos = new FormData(form);
+    const nombre = String(datos.get('nombre') ?? '').trim();
+    if (!nombre) return;
+    const nAulas = limitar(entero(datos.get('aulas')), 1, 200);
+    const nMesas = limitar(entero(datos.get('mesas')), 1, 50);
+    const numero = numeradorMesas(d);
+    d.colegios.push({
+      id: uid(),
+      nombre,
+      aulas: Array.from({ length: nAulas }, (_, i) => crearAula(`Aula ${i + 1}`, nMesas, numero)),
+    });
+    guardar(d);
+    form.reset();
+    pintar();
+  });
+
+  lista.addEventListener('change', (e) => {
+    const el = e.target as HTMLInputElement;
+    const c = d.colegios.find((x) => x.id === el.closest<HTMLElement>('[data-c]')?.dataset.c);
+    const a = c?.aulas.find((x) => x.id === el.closest<HTMLElement>('[data-aula]')?.dataset.aula);
+    if (!c) return;
+    const valor = el.value.trim();
+
+    // Renombrar no redibuja la lista, así no se pierde el foco del siguiente campo.
+    switch (el.dataset.f) {
+      case 'colegio':
+        if (valor) c.nombre = valor;
+        el.value = c.nombre;
+        break;
+      case 'aula':
+        if (!a) return;
+        if (valor) a.nombre = valor;
+        el.value = a.nombre;
+        break;
+      case 'mesa': {
+        const m = a?.mesas.find((x) => x.id === el.dataset.mesa);
+        if (!m) return;
+        if (valor) m.numero = valor;
+        el.value = m.numero;
+        break;
+      }
+      case 'cantidad':
+        if (a) ajustarMesas(a, entero(el.value));
+        guardar(d);
+        pintar();
+        return;
+    }
+    guardar(d);
+  });
+
+  lista.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
+    const c = d.colegios.find((x) => x.id === b?.closest<HTMLElement>('[data-c]')?.dataset.c);
+    if (!b || !c) return;
+
+    switch (b.dataset.accion) {
+      case 'quitar-colegio':
+        if (!confirm(`¿Eliminar "${c.nombre}" con todas sus aulas, mesas y votos?`)) return;
+        d.colegios = d.colegios.filter((x) => x !== c);
+        break;
+      case 'quitar-aula': {
+        const a = c.aulas.find((x) => x.id === b.closest<HTMLElement>('[data-aula]')?.dataset.aula);
+        if (!a || !confirm(`¿Eliminar "${a.nombre}" con sus mesas y votos?`)) return;
+        c.aulas = c.aulas.filter((x) => x !== a);
+        break;
+      }
+      case 'agregar-aula':
+        c.aulas.push(crearAula(`Aula ${c.aulas.length + 1}`, 1, numeradorMesas(d)));
+        break;
+    }
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>

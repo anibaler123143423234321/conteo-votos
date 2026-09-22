@@ -1,0 +1,50 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const actual = Astro.url.pathname.slice(base.length).replace(/\/$/, '') || '/';
+
+const enlaces = [
+  { href: '/', texto: 'Conteo' },
+  { href: '/resultados', texto: 'Resultados' },
+  { href: '/colegios', texto: 'Colegios' },
+  { href: '/partidos', texto: 'Partidos' },
+];
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+    <title>{title} · Conteo de votos</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href={`${base}/`}>
+          <img src={`${base}/favicon.svg`} alt="" width="26" height="26" />
+          Conteo de votos
+        </a>
+        <nav class="nav" aria-label="Principal">
+          {
+            enlaces.map((e) => (
+              <a href={`${base}${e.href}`} aria-current={actual === e.href ? 'page' : undefined}>
+                {e.texto}
+              </a>
+            ))
+          }
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <slot />
+    </main>
+  </body>
+</html>

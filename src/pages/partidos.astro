@@ -1,0 +1,127 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Partidos">
+  <div class="page-head">
+    <h1>Partidos políticos</h1>
+    <button type="button" class="btn" id="restaurar">Restaurar lista original</button>
+  </div>
+  <div class="grid-partidos" id="columnas"></div>
+</Layout>
+
+<script>
+  import {
+    cargar,
+    columnasPorDefecto,
+    esc,
+    guardar,
+    limpiarVotos,
+    mesas,
+    uid,
+    votosDe,
+  } from '../lib/store';
+
+  const d = cargar();
+  const cont = document.getElementById('columnas')!;
+
+  function pintar() {
+    cont.innerHTML = d.columnas
+      .map(
+        (col, ci) => `
+      <section class="card" data-col="${esc(col.id)}">
+        <div class="col-etiqueta">Columna ${ci + 1} · ${col.partidos.length} partidos</div>
+        <input class="input-titulo" data-f="titulo" value="${esc(col.titulo)}" aria-label="Título de la columna" />
+        <ol class="lista-partidos">
+          ${col.partidos
+            .map(
+              (p, i) => `
+            <li data-p="${esc(p.id)}">
+              <span class="num">${i + 1}</span>
+              <input data-f="nombre" value="${esc(p.nombre)}" aria-label="Nombre del partido ${i + 1}" />
+              <button type="button" class="icon-btn" data-accion="subir" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>↑</button>
+              <button type="button" class="icon-btn" data-accion="bajar" aria-label="Bajar" ${i === col.partidos.length - 1 ? 'disabled' : ''}>↓</button>
+              <button type="button" class="icon-btn danger" data-accion="quitar" aria-label="Eliminar ${esc(p.nombre)}">✕</button>
+            </li>`,
+            )
+            .join('')}
+        </ol>
+        <form class="nuevo-partido">
+          <input name="nombre" required placeholder="Nombre del nuevo partido" aria-label="Nombre del nuevo partido" autocomplete="off" />
+          <button class="btn primary">Crear partido</button>
+        </form>
+      </section>`,
+      )
+      .join('');
+  }
+
+  const columnaDe = (el: Element) =>
+    d.columnas.find((c) => c.id === el.closest<HTMLElement>('[data-col]')?.dataset.col);
+
+  cont.addEventListener('change', (e) => {
+    const el = e.target as HTMLInputElement;
+    const col = columnaDe(el);
+    if (!col) return;
+    const valor = el.value.trim();
+    if (el.dataset.f === 'titulo') {
+      if (valor) col.titulo = valor;
+      el.value = col.titulo;
+    } else if (el.dataset.f === 'nombre') {
+      const p = col.partidos.find((x) => x.id === el.closest<HTMLElement>('[data-p]')?.dataset.p);
+      if (!p) return;
+      if (valor) p.nombre = valor;
+      el.value = p.nombre;
+    }
+    guardar(d);
+  });
+
+  cont.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
+    const col = b && columnaDe(b);
+    const i = col?.partidos.findIndex((x) => x.id === b?.closest<HTMLElement>('[data-p]')?.dataset.p) ?? -1;
+    if (!b || !col || i < 0) return;
+    const p = col.partidos[i];
+
+    switch (b.dataset.accion) {
+      case 'subir':
+      case 'bajar': {
+        const j = b.dataset.accion === 'subir' ? i - 1 : i + 1;
+        if (j < 0 || j >= col.partidos.length) return;
+        [col.partidos[i], col.partidos[j]] = [col.partidos[j], col.partidos[i]];
+        break;
+      }
+      case 'quitar': {
+        const votos = mesas(d).reduce((t, u) => t + votosDe(u.mesa, col.id, p.id), 0);
+        const aviso = votos ? ` Tiene ${votos} votos registrados que también se borrarán.` : '';
+        if (!confirm(`¿Eliminar "${p.nombre}" de esta columna?${aviso}`)) return;
+        col.partidos.splice(i, 1);
+        limpiarVotos(d);
+        break;
+      }
+    }
+    guardar(d);
+    pintar();
+  });
+
+  cont.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const col = columnaDe(form);
+    const nombre = String(new FormData(form).get('nombre') ?? '').trim();
+    if (!col || !nombre) return;
+    col.partidos.push({ id: uid(), nombre });
+    guardar(d);
+    pintar();
+    cont.querySelector<HTMLInputElement>(`[data-col="${CSS.escape(col.id)}"] .nuevo-partido input`)?.focus();
+  });
+
+  document.getElementById('restaurar')!.addEventListener('click', () => {
+    if (!confirm('¿Restaurar las listas originales de partidos? Se perderán los partidos agregados y sus votos.')) return;
+    d.columnas = columnasPorDefecto();
+    limpiarVotos(d);
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>
