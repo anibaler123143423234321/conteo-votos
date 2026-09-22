@@ -1,8 +1,10 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { FUENTE_LOCALES, LOCALES_FERRENAFE } from '../data/locales-ferrenafe';
+import { FUENTE_LOCALES, LOCALES_FERRENAFE, numerosDeMesa } from '../data/locales-ferrenafe';
 
-const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
+const numeros = LOCALES_FERRENAFE.flatMap((l) => numerosDeMesa(l.desde, l.mesas)).sort();
+const primera = numeros[0];
+const ultima = numeros[numeros.length - 1];
 ---
 
 <Layout title="Colegios y mesas">
@@ -22,15 +24,14 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
         <input id="provincia" autocomplete="off" />
       </label>
       <span class="resumen">
-        {LOCALES_FERRENAFE.length} locales de votación y {totalMesas} mesas cargados de la ONPE
+        {LOCALES_FERRENAFE.length} locales de votación y {numeros.length} mesas ({primera} al {ultima})
       </span>
-      <button type="button" class="btn" id="cargar-onpe">Recargar locales ONPE</button>
+      <button type="button" class="btn" id="cargar-onpe">Restaurar colegios y mesas</button>
     </div>
     <p class="nota">
-      Fuente: {FUENTE_LOCALES}. Para el 4 de octubre la ONPE puede cambiar algunos números de
-      mesa: revísalos en{' '}
-      <a href="https://consultaelectoral.onpe.gob.pe/" target="_blank" rel="noopener">consultaelectoral.onpe.gob.pe</a>{' '}
-      y corrígelos abajo si hace falta.
+      Fuente: {FUENTE_LOCALES}. La ONPE no publica en qué aula está cada mesa: cada mesa tiene su
+      propia aula (Aula 1, Aula 2…) y puedes ponerles el nombre real abajo, por ejemplo cuando
+      veas el número de mesa pegado en la puerta del aula.
     </p>
   </section>
 
@@ -59,7 +60,7 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
 <script>
   import {
     cargar,
-    colegiosOnpe,
+    colegiosIniciales,
     electoresDe,
     entero,
     esc,
@@ -174,8 +175,8 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
   $('cargar-onpe').addEventListener('click', () => {
     const hayVotos = mesas(d).some((u) => mesaContada(d, u.mesa));
     const aviso = hayVotos ? ' Se perderán los votos ya registrados.' : '';
-    if (!confirm(`¿Reemplazar los colegios actuales por los locales de votación de la ONPE?${aviso}`)) return;
-    d.colegios = colegiosOnpe();
+    if (!confirm(`¿Volver a la lista original de colegios, aulas y mesas?${aviso}`)) return;
+    d.colegios = colegiosIniciales();
     abiertos.clear();
     guardar(d);
     pintar();

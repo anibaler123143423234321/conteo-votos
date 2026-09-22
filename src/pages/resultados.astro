@@ -60,6 +60,7 @@ import Layout from '../layouts/Layout.astro';
     mesaContada,
     mesas,
     nombreColegio,
+    normalizar,
     opciones,
     pct,
     resumen,
@@ -222,7 +223,7 @@ import Layout from '../layouts/Layout.astro';
       const nuevo = JSON.parse(await file.text());
       if (!esDatos(nuevo)) throw new Error('formato');
       if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
-      d = nuevo;
+      d = normalizar(nuevo);
       guardar(d);
       pintar();
     } catch {

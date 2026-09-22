@@ -1,5 +1,5 @@
 // Datos del conteo: se guardan en el navegador (localStorage).
-import { LOCALES_FERRENAFE } from '../data/locales-ferrenafe';
+import { LOCALES_FERRENAFE, numerosDeMesa } from '../data/locales-ferrenafe';
 import { COLUMNAS_POR_DEFECTO } from '../data/partidos';
 
 export interface Partido {
@@ -40,7 +40,7 @@ export interface Colegio {
 }
 
 export interface Datos {
-  version: 1;
+  version: number;
   distrito: string;
   provincia: string;
   columnas: Columna[];
@@ -72,6 +72,11 @@ export interface Resumen {
 export const BLANCO = '_blanco';
 export const NULO = '_nulo';
 
+/** La ONPE arma cada mesa con 300 electores como máximo. */
+export const MAX_ELECTORES_MESA = 300;
+
+const VERSION = 2;
+
 const CLAVE = 'conteo-votos:datos';
 
 export const uid = () =>
@@ -79,26 +84,59 @@ export const uid = () =>
 
 export const columnasPorDefecto = (): Columna[] => structuredClone(COLUMNAS_POR_DEFECTO);
 
-/** Locales de votación de la ONPE, con un aula por mesa (se pueden renombrar). */
-export const colegiosOnpe = (): Colegio[] =>
+/** Locales de votación con un aula por mesa (la ONPE no publica las aulas; se pueden renombrar). */
+export const colegiosIniciales = (): Colegio[] =>
   LOCALES_FERRENAFE.map((local) => ({
     id: uid(),
     codigo: local.codigo,
     nombre: local.nombre,
-    aulas: local.mesas.map(([numero, electores], i) => ({
+    aulas: numerosDeMesa(local.desde, local.mesas).map((numero, i) => ({
       id: uid(),
       nombre: `Aula ${i + 1}`,
-      mesas: [{ id: uid(), numero, electores, votos: {} }],
+      mesas: [{ id: uid(), numero, votos: {} }],
     })),
   }));
 
 export const datosIniciales = (): Datos => ({
-  version: 1,
+  version: VERSION,
   distrito: 'Ferreñafe',
   provincia: 'Ferreñafe',
   columnas: columnasPorDefecto(),
-  colegios: colegiosOnpe(),
+  colegios: colegiosIniciales(),
 });
+
+/**
+ * Pone al día datos guardados con una versión anterior. La versión 1 usaba los números
+ * de mesa de junio: se cambian por los de octubre, manteniendo aulas y votos.
+ */
+export function normalizar(d: Datos): Datos {
+  if ((d.version ?? 1) < 2) {
+    const nuevos = new Map<string, string>();
+    for (const l of LOCALES_FERRENAFE) {
+      const ahora = numerosDeMesa(l.desde, l.mesas);
+      numerosDeMesa(l.desdeJunio, l.mesas).forEach((n, i) => nuevos.set(`${l.codigo}:${n}`, ahora[i]));
+    }
+    for (const c of d.colegios) {
+      const local = LOCALES_FERRENAFE.find((l) => l.codigo === c.codigo);
+      if (!local) continue;
+      if (local.nombreJunio && c.nombre === local.nombreJunio) c.nombre = local.nombre;
+      for (const a of c.aulas) {
+        for (const m of a.mesas) {
+          const numero = nuevos.get(`${c.codigo}:${m.numero}`);
+          if (!numero) continue;
+          m.numero = numero;
+          // Los electores de junio no corresponden a las mesas nuevas.
+          delete m.electores;
+        }
+      }
+    }
+    const primera = (c: Colegio) =>
+      Math.min(...c.aulas.flatMap((a) => a.mesas.map((m) => parseInt(m.numero, 10) || Infinity)));
+    d.colegios.sort((a, b) => primera(a) - primera(b));
+    d.version = 2;
+  }
+  return d;
+}
 
 export function esDatos(x: unknown): x is Datos {
   const d = x as Datos;
@@ -110,7 +148,12 @@ export function cargar(): Datos {
     const raw = localStorage.getItem(CLAVE);
     if (raw) {
       const d = JSON.parse(raw);
-      if (esDatos(d)) return d;
+      if (esDatos(d)) {
+        const anterior = d.version;
+        normalizar(d);
+        if (d.version !== anterior) guardar(d);
+        return d;
+      }
     }
   } catch {
     // Almacenamiento no disponible o datos dañados: se empieza de cero.

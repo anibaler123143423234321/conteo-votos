@@ -6,9 +6,10 @@ Web simple hecha con [Astro](https://astro.build) para contar votos por mesa
 ## Cómo funciona
 
 1. **Colegios** — ya vienen cargados los 12 locales de votación del distrito de Ferreñafe
-   con sus 101 mesas y electores hábiles (datos de la ONPE, segunda vuelta de junio 2026,
-   ver `src/data/locales-ferrenafe.ts`). Cada mesa va en su propia aula; puedes renombrar
-   aulas, corregir números de mesa o agregar más colegios con su cantidad de aulas y mesas.
+   con sus 101 mesas del 4 de octubre (034611 al 034711; nombres y códigos de local de la
+   ONPE, ver `src/data/locales-ferrenafe.ts`). La ONPE no publica las aulas: cada mesa va en
+   su propia aula ("Aula 1", "Aula 2"…) y se pueden renombrar, corregir números de mesa o
+   agregar más colegios con su cantidad de aulas y mesas.
 2. **Partidos** — ya vienen cargados los partidos de las 3 columnas de la cédula
    (Gobernador y Vicegobernador Regional, Consejo Regional y Provincia de Ferreñafe).
    Puedes crear, renombrar, ordenar o quitar partidos.

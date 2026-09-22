@@ -47,6 +47,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 <script>
   import {
     BLANCO,
+    MAX_ELECTORES_MESA,
     NULO,
     cargar,
     entero,
@@ -216,9 +217,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       }
     }
 
-    if (mesa.electores && mayor > mesa.electores) {
+    if (mayor > (mesa.electores || MAX_ELECTORES_MESA)) {
       chequeo.className = 'chip error';
-      chequeo.textContent = `⚠ Más votos que electores (${fmt(mayor)} de ${fmt(mesa.electores)})`;
+      chequeo.textContent = mesa.electores
+        ? `⚠ Más votos que electores (${fmt(mayor)} de ${fmt(mesa.electores)})`
+        : `⚠ Más de ${MAX_ELECTORES_MESA} votos: ninguna mesa tiene más electores`;
     } else if (distintos) {
       chequeo.className = 'chip warn';
       chequeo.textContent = `⚠ Totales no coinciden (${ns.map(fmt).join(' · ')})`;
