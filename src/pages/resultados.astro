@@ -7,15 +7,19 @@ import Layout from '../layouts/Layout.astro';
 
   <section class="card barra-sel" aria-label="Filtrar resultados">
     <div class="selectores sin-nav">
+      <label class="campo campo-distrito">
+        <span class="campo-et">Distrito</span>
+        <select id="f-distrito"></select>
+      </label>
       <label class="campo campo-colegio">
         <span class="campo-et">Colegio</span>
         <select id="f-colegio"></select>
       </label>
-      <label class="campo">
+      <label class="campo campo-aula">
         <span class="campo-et">Aula</span>
         <select id="f-aula"></select>
       </label>
-      <label class="campo">
+      <label class="campo campo-mesa">
         <span class="campo-et">Mesa</span>
         <select id="f-mesa"></select>
       </label>
@@ -50,6 +54,7 @@ import Layout from '../layouts/Layout.astro';
     BLANCO,
     NULO,
     cargar,
+    columnasDe,
     datosIniciales,
     descargar,
     electoresDe,
@@ -69,10 +74,11 @@ import Layout from '../layouts/Layout.astro';
   } from '../lib/store';
 
   let d: Datos = cargar();
-  let f = { colegio: '', aula: '', mesa: '' };
+  let f = { distrito: '', colegio: '', aula: '', mesa: '' };
   let tab = 0;
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fDistrito = $<HTMLSelectElement>('f-distrito');
   const fColegio = $<HTMLSelectElement>('f-colegio');
   const fAula = $<HTMLSelectElement>('f-aula');
   const fMesa = $<HTMLSelectElement>('f-mesa');
@@ -81,19 +87,26 @@ import Layout from '../layouts/Layout.astro';
   const archivo = $<HTMLInputElement>('archivo');
 
   function pintar() {
-    const colegio = d.colegios.find((x) => x.id === f.colegio);
+    const distrito = d.distritos.find((x) => x.id === f.distrito);
+    const colegio = distrito?.colegios.find((x) => x.id === f.colegio);
     const aula = colegio?.aulas.find((x) => x.id === f.aula);
     const mesa = aula?.mesas.find((x) => x.id === f.mesa);
-    f = { colegio: colegio?.id ?? '', aula: aula?.id ?? '', mesa: mesa?.id ?? '' };
+    f = { distrito: distrito?.id ?? '', colegio: colegio?.id ?? '', aula: aula?.id ?? '', mesa: mesa?.id ?? '' };
 
+    opciones(
+      fDistrito,
+      [{ id: '', nombre: 'Toda la provincia' }, ...d.distritos.map((x) => ({ id: x.id, nombre: x.corto ?? x.nombre }))],
+      f.distrito,
+    );
     opciones(
       fColegio,
       [
         { id: '', nombre: 'Todos' },
-        ...d.colegios.map((c) => ({ id: c.id, nombre: nombreColegio(d, c) })),
+        ...(distrito?.colegios ?? []).map((c) => ({ id: c.id, nombre: nombreColegio(distrito!.colegios, c) })),
       ],
       f.colegio,
     );
+    fColegio.disabled = !distrito;
     opciones(fAula, [{ id: '', nombre: 'Todas' }, ...(colegio?.aulas ?? [])], f.aula);
     opciones(
       fMesa,
@@ -115,7 +128,12 @@ import Layout from '../layouts/Layout.astro';
     avance.textContent = `${fmt(contadas)} de ${fmt(lista.length)} mesas contadas (${pct(contadas, lista.length)})`;
     avance.className = lista.length && contadas === lista.length ? 'chip ok' : 'chip';
 
-    const resumenes = d.columnas.map((col) => resumen(col, lista));
+    // Con toda la provincia solo se suman las columnas que comparten todos los distritos.
+    const cols = distrito ? columnasDe(d, distrito.id) : d.columnas.filter((c) => !c.distrito);
+    if (tab >= cols.length) tab = 0;
+    cont.style.setProperty('--cols', String(cols.length));
+    cont.classList.toggle('cuatro', cols.length > 3);
+    const resumenes = cols.map((col) => resumen(col, lista));
 
     tabs.innerHTML = resumenes
       .map(
@@ -137,6 +155,7 @@ import Layout from '../layouts/Layout.astro';
           <table class="tabla-res">
             <thead><tr><th>Partido</th><th class="n">Votos</th><th class="n">%</th></tr></thead>
             <tbody>
+              ${filas.length ? '' : '<tr><td colspan="3" class="muted">Todavía no hay partidos en esta columna.</td></tr>'}
               ${filas
                 .map(
                   (x) => `
@@ -161,8 +180,12 @@ import Layout from '../layouts/Layout.astro';
       .join('');
   }
 
+  fDistrito.addEventListener('change', () => {
+    f = { distrito: fDistrito.value, colegio: '', aula: '', mesa: '' };
+    pintar();
+  });
   fColegio.addEventListener('change', () => {
-    f = { colegio: fColegio.value, aula: '', mesa: '' };
+    f = { ...f, colegio: fColegio.value, aula: '', mesa: '' };
     pintar();
   });
   fAula.addEventListener('change', () => {
@@ -188,16 +211,16 @@ import Layout from '../layouts/Layout.astro';
     const filas = [
       ['Distrito', 'Local ONPE', 'Colegio', 'Aula', 'Mesa', 'Electores hábiles', 'Columna', 'N°', 'Partido', 'Votos'],
     ];
-    for (const { colegio, aula, mesa } of mesas(d)) {
+    for (const { distrito, colegio, aula, mesa } of mesas(d)) {
       const base = [
-        d.distrito,
+        distrito.nombre,
         colegio.codigo ?? '',
         colegio.nombre,
         aula.nombre,
         mesa.numero,
         mesa.electores ? String(mesa.electores) : '',
       ];
-      for (const col of d.columnas) {
+      for (const col of columnasDe(d, distrito.id)) {
         col.partidos.forEach((p, i) =>
           filas.push([...base, col.titulo, String(i + 1), p.nombre, String(votosDe(mesa, col.id, p.id))]),
         );

@@ -1,6 +1,6 @@
 // Datos del conteo: se guardan en el navegador (localStorage).
-import { LOCALES_FERRENAFE, numerosDeMesa } from '../data/locales-ferrenafe';
 import { COLUMNAS_POR_DEFECTO } from '../data/partidos';
+import { DISTRITOS } from '../data/provincia-ferrenafe';
 
 export interface Partido {
   id: string;
@@ -11,6 +11,8 @@ export interface Columna {
   id: string;
   titulo: string;
   corto: string;
+  /** Si está, la columna solo va en la cédula de ese distrito (alcalde distrital). */
+  distrito?: string;
   partidos: Partido[];
 }
 
@@ -20,7 +22,7 @@ export type Votos = Record<string, Record<string, number>>;
 export interface Mesa {
   id: string;
   numero: string;
-  /** Electores hábiles según la ONPE (si se conoce). */
+  /** Electores hábiles (si se conoce). */
   electores?: number;
   votos: Votos;
 }
@@ -39,21 +41,34 @@ export interface Colegio {
   aulas: Aula[];
 }
 
-export interface Datos {
-  version: number;
-  distrito: string;
-  provincia: string;
-  columnas: Columna[];
+export interface Distrito {
+  id: string;
+  nombre: string;
+  /** Nombre corto para listas y botones. */
+  corto?: string;
+  /** Capital de provincia: su cédula no tiene columna de alcalde distrital. */
+  capital?: boolean;
+  /** Los números de mesa ya son los del 4 de octubre. */
+  confirmado?: boolean;
   colegios: Colegio[];
 }
 
+export interface Datos {
+  version: number;
+  provincia: string;
+  columnas: Columna[];
+  distritos: Distrito[];
+}
+
 export interface Ubicada {
+  distrito: Distrito;
   colegio: Colegio;
   aula: Aula;
   mesa: Mesa;
 }
 
 export interface Filtro {
+  distrito?: string;
   colegio?: string;
   aula?: string;
   mesa?: string;
@@ -75,49 +90,86 @@ export const NULO = '_nulo';
 /** La ONPE arma cada mesa con 300 electores como máximo. */
 export const MAX_ELECTORES_MESA = 300;
 
-const VERSION = 2;
-
+const VERSION = 3;
 const CLAVE = 'conteo-votos:datos';
 
 export const uid = () =>
   Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
-export const columnasPorDefecto = (): Columna[] => structuredClone(COLUMNAS_POR_DEFECTO);
+const columnaDistrital = (x: { id: string; nombre: string }): Columna => ({
+  id: `distrital-${x.id}`,
+  titulo: `Distrito de ${x.nombre}`,
+  corto: 'Distrito',
+  distrito: x.id,
+  partidos: [],
+});
 
-/** Locales de votación con un aula por mesa (la ONPE no publica las aulas; se pueden renombrar). */
-export const colegiosIniciales = (): Colegio[] =>
-  LOCALES_FERRENAFE.map((local) => ({
+/** Columnas de la provincia y una de alcalde distrital por cada distrito que no es capital. */
+export const columnasPorDefecto = (): Columna[] => [
+  ...structuredClone(COLUMNAS_POR_DEFECTO),
+  ...DISTRITOS.filter((x) => !x.capital).map(columnaDistrital),
+];
+
+/** Colegios de un distrito, con un aula por mesa (la ONPE no publica las aulas). */
+export const colegiosDe = (distritoId: string): Colegio[] =>
+  (DISTRITOS.find((x) => x.id === distritoId)?.locales ?? []).map((local) => ({
     id: uid(),
     codigo: local.codigo,
     nombre: local.nombre,
-    aulas: numerosDeMesa(local.desde, local.mesas).map((numero, i) => ({
+    aulas: local.mesas.map((numero, i) => ({
       id: uid(),
       nombre: `Aula ${i + 1}`,
       mesas: [{ id: uid(), numero, votos: {} }],
     })),
   }));
 
+const distritosIniciales = (): Distrito[] =>
+  DISTRITOS.map((x) => ({
+    id: x.id,
+    nombre: x.nombre,
+    corto: x.corto,
+    capital: x.capital,
+    confirmado: x.confirmado,
+    colegios: colegiosDe(x.id),
+  }));
+
 export const datosIniciales = (): Datos => ({
   version: VERSION,
-  distrito: 'Ferreñafe',
   provincia: 'Ferreñafe',
   columnas: columnasPorDefecto(),
-  colegios: colegiosIniciales(),
+  distritos: distritosIniciales(),
 });
 
-/**
- * Pone al día datos guardados con una versión anterior. La versión 1 usaba los números
- * de mesa de junio: se cambian por los de octubre, manteniendo aulas y votos.
- */
-export function normalizar(d: Datos): Datos {
-  if ((d.version ?? 1) < 2) {
+/** Columnas que lleva la cédula de un distrito. */
+export const columnasDe = (d: Datos, distritoId?: string) =>
+  d.columnas.filter((c) => !c.distrito || c.distrito === distritoId);
+
+/** Forma de los datos guardados por versiones anteriores (un solo distrito). */
+type DatosAnteriores = Datos & { distrito?: string; colegios?: Colegio[] };
+
+export function esDatos(x: unknown): x is Datos {
+  const d = x as DatosAnteriores;
+  return (
+    !!d &&
+    typeof d === 'object' &&
+    Array.isArray(d.columnas) &&
+    (Array.isArray(d.distritos) || Array.isArray(d.colegios))
+  );
+}
+
+/** Pone al día datos guardados con una versión anterior, sin perder aulas ni votos. */
+export function normalizar(datos: Datos): Datos {
+  const d = datos as DatosAnteriores;
+  const capital = DISTRITOS.find((x) => x.capital)!;
+
+  // Versión 1: Ferreñafe con los números de mesa de junio → los del 4 de octubre.
+  if ((d.version ?? 1) < 2 && d.colegios) {
     const nuevos = new Map<string, string>();
-    for (const l of LOCALES_FERRENAFE) {
-      const ahora = numerosDeMesa(l.desde, l.mesas);
-      numerosDeMesa(l.desdeJunio, l.mesas).forEach((n, i) => nuevos.set(`${l.codigo}:${n}`, ahora[i]));
+    for (const l of capital.locales) {
+      l.mesasJunio?.forEach((n, i) => nuevos.set(`${l.codigo}:${n}`, l.mesas[i]));
     }
     for (const c of d.colegios) {
-      const local = LOCALES_FERRENAFE.find((l) => l.codigo === c.codigo);
+      const local = capital.locales.find((l) => l.codigo === c.codigo);
       if (!local) continue;
       if (local.nombreJunio && c.nombre === local.nombreJunio) c.nombre = local.nombre;
       for (const a of c.aulas) {
@@ -135,12 +187,21 @@ export function normalizar(d: Datos): Datos {
     d.colegios.sort((a, b) => primera(a) - primera(b));
     d.version = 2;
   }
-  return d;
-}
 
-export function esDatos(x: unknown): x is Datos {
-  const d = x as Datos;
-  return !!d && typeof d === 'object' && Array.isArray(d.columnas) && Array.isArray(d.colegios);
+  // Versión 2: solo el distrito de Ferreñafe → los 6 distritos de la provincia.
+  if ((d.version ?? 1) < 3) {
+    const distritos = distritosIniciales();
+    if (d.colegios) distritos.find((x) => x.id === capital.id)!.colegios = d.colegios;
+    d.distritos = distritos;
+    for (const col of columnasPorDefecto()) {
+      if (!d.columnas.some((c) => c.id === col.id)) d.columnas.push(col);
+    }
+    d.provincia ||= 'Ferreñafe';
+    delete d.colegios;
+    delete d.distrito;
+    d.version = 3;
+  }
+  return d;
 }
 
 export function cargar(): Datos {
@@ -185,13 +246,16 @@ export function ponerVotos(m: Mesa, col: string, p: string, n: number) {
 
 export function mesas(d: Datos, f: Filtro = {}): Ubicada[] {
   const out: Ubicada[] = [];
-  for (const colegio of d.colegios) {
-    if (f.colegio && colegio.id !== f.colegio) continue;
-    for (const aula of colegio.aulas) {
-      if (f.aula && aula.id !== f.aula) continue;
-      for (const mesa of aula.mesas) {
-        if (f.mesa && mesa.id !== f.mesa) continue;
-        out.push({ colegio, aula, mesa });
+  for (const distrito of d.distritos) {
+    if (f.distrito && distrito.id !== f.distrito) continue;
+    for (const colegio of distrito.colegios) {
+      if (f.colegio && colegio.id !== f.colegio) continue;
+      for (const aula of colegio.aulas) {
+        if (f.aula && aula.id !== f.aula) continue;
+        for (const mesa of aula.mesas) {
+          if (f.mesa && mesa.id !== f.mesa) continue;
+          out.push({ distrito, colegio, aula, mesa });
+        }
       }
     }
   }
@@ -207,9 +271,9 @@ export function resumen(columna: Columna, lista: Mesa[]): Resumen {
   return { columna, filas, validos, blanco, nulo, emitidos: validos + blanco + nulo };
 }
 
-/** Nombre del colegio; si hay otro con el mismo nombre, se agrega el código del local. */
-export function nombreColegio(d: Datos, c: Colegio): string {
-  const repetido = d.colegios.some((x) => x !== c && x.nombre === c.nombre);
+/** Nombre del colegio; si otro de la lista se llama igual, se agrega el código del local. */
+export function nombreColegio(lista: Colegio[], c: Colegio): string {
+  const repetido = lista.some((x) => x !== c && x.nombre === c.nombre);
   return repetido && c.codigo ? `${c.nombre} (local ${c.codigo})` : c.nombre;
 }
 
@@ -218,11 +282,11 @@ export const electoresDe = (lista: Mesa[]) => lista.reduce((t, m) => t + (m.elec
 export const mesaContada = (d: Datos, m: Mesa) =>
   d.columnas.some((c) => resumen(c, [m]).emitidos > 0);
 
-/** Devuelve una función que genera el siguiente número de mesa libre. */
-export function numeradorMesas(d: Datos): () => string {
+/** Devuelve una función que genera el siguiente número de mesa libre del distrito. */
+export function numeradorMesas(d: Datos, distritoId?: string): () => string {
   let max = 0;
   let largo = 0;
-  for (const { mesa } of mesas(d)) {
+  for (const { mesa } of mesas(d, { distrito: distritoId })) {
     if (/^\d+$/.test(mesa.numero)) {
       max = Math.max(max, parseInt(mesa.numero, 10));
       largo = Math.max(largo, mesa.numero.length);

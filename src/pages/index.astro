@@ -9,15 +9,19 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <section class="card barra-sel" aria-label="Elegir mesa">
     <div class="selectores">
+      <label class="campo campo-distrito">
+        <span class="campo-et">Distrito</span>
+        <select id="sel-distrito"></select>
+      </label>
       <label class="campo campo-colegio">
         <span class="campo-et">Colegio</span>
         <select id="sel-colegio"></select>
       </label>
-      <label class="campo">
+      <label class="campo campo-aula">
         <span class="campo-et">Aula</span>
         <select id="sel-aula"></select>
       </label>
-      <label class="campo">
+      <label class="campo campo-mesa">
         <span class="campo-et">Mesa</span>
         <select id="sel-mesa"></select>
       </label>
@@ -29,6 +33,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div class="estado-mesa">
       <span class="info" id="info"></span>
       <span class="chips-estado" aria-live="polite">
+        <span class="chip" id="por-confirmar" title="Los números de mesa de este distrito son de la segunda vuelta de junio. Revísalos y corrígelos en Colegios." hidden>
+          N° por confirmar
+        </span>
         <span class="chip" id="chequeo"></span>
         <span class="chip" id="guardado"></span>
       </span>
@@ -41,7 +48,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   </section>
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
-  <div class="columnas" id="columnas"></div>
+  <div class="columnas" id="columnas" data-partidos={`${base}/partidos`}></div>
 </Layout>
 
 <script>
@@ -50,6 +57,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     MAX_ELECTORES_MESA,
     NULO,
     cargar,
+    columnasDe,
     entero,
     esc,
     fmt,
@@ -61,6 +69,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     ponerVotos,
     resumen,
     votosDe,
+    type Columna,
     type Mesa,
   } from '../lib/store';
 
@@ -68,19 +77,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const d = cargar();
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+  const selDistrito = $<HTMLSelectElement>('sel-distrito');
   const selColegio = $<HTMLSelectElement>('sel-colegio');
   const selAula = $<HTMLSelectElement>('sel-aula');
   const selMesa = $<HTMLSelectElement>('sel-mesa');
   const anterior = $<HTMLButtonElement>('anterior');
   const siguiente = $<HTMLButtonElement>('siguiente');
   const info = $('info');
+  const porConfirmar = $('por-confirmar');
   const chequeo = $('chequeo');
   const guardado = $('guardado');
   const vacio = $('vacio');
   const tabs = $('tabs');
   const columnas = $('columnas');
 
-  let sel = { c: '', a: '', m: '' };
+  let sel = { di: '', c: '', a: '', m: '' };
   let tab = 0;
 
   try {
@@ -91,51 +102,58 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   /** Resuelve la selección actual (o la primera disponible). */
   function actual() {
-    const colegio = d.colegios.find((x) => x.id === sel.c) ?? d.colegios[0];
+    const distrito = d.distritos.find((x) => x.id === sel.di) ?? d.distritos[0];
+    const colegio = distrito?.colegios.find((x) => x.id === sel.c) ?? distrito?.colegios[0];
     const aula = colegio?.aulas.find((x) => x.id === sel.a) ?? colegio?.aulas[0];
     const mesa = aula?.mesas.find((x) => x.id === sel.m) ?? aula?.mesas[0];
-    sel = { c: colegio?.id ?? '', a: aula?.id ?? '', m: mesa?.id ?? '' };
+    sel = { di: distrito?.id ?? '', c: colegio?.id ?? '', a: aula?.id ?? '', m: mesa?.id ?? '' };
     try {
       localStorage.setItem(CLAVE_SEL, JSON.stringify(sel));
     } catch {
       // No importa si no se puede recordar.
     }
-    return { colegio, aula, mesa };
+    return { distrito, colegio, aula, mesa, cols: columnasDe(d, distrito?.id) };
   }
 
   function pintar() {
-    const { colegio, aula, mesa } = actual();
+    const { distrito, colegio, aula, mesa, cols } = actual();
 
+    opciones(selDistrito, d.distritos.map((x) => ({ id: x.id, nombre: x.corto ?? x.nombre })), sel.di);
     opciones(
       selColegio,
-      d.colegios.map((c) => ({ id: c.id, nombre: nombreColegio(d, c) })),
+      (distrito?.colegios ?? []).map((c) => ({ id: c.id, nombre: nombreColegio(distrito.colegios, c) })),
       sel.c,
     );
     opciones(selAula, colegio?.aulas ?? [], sel.a);
     opciones(selMesa, (aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: m.numero })), sel.m);
-    selColegio.disabled = !d.colegios.length;
+    selColegio.disabled = !distrito?.colegios.length;
     selAula.disabled = !colegio?.aulas.length;
     selMesa.disabled = !aula?.mesas.length;
+    porConfirmar.hidden = !mesa || !!distrito?.confirmado;
 
     vacio.hidden = !!mesa;
     tabs.hidden = !mesa;
     if (!mesa) {
-      $('vacio-texto').textContent = d.colegios.length
+      $('vacio-texto').textContent = distrito?.colegios.length
         ? 'Esta aula todavía no tiene mesas.'
-        : 'Aún no hay colegios registrados. Primero crea los colegios, aulas y mesas.';
+        : 'Este distrito aún no tiene colegios registrados.';
       columnas.innerHTML = '';
       pintarEstado();
       return;
     }
 
-    tabs.innerHTML = d.columnas
+    if (tab >= cols.length) tab = 0;
+    columnas.style.setProperty('--cols', String(cols.length));
+    columnas.classList.toggle('cuatro', cols.length > 3);
+
+    tabs.innerHTML = cols
       .map(
         (col, i) =>
           `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(col.titulo)}"><span class="tab-et">${esc(col.corto || col.titulo)}</span><span class="tab-n" data-tt="${esc(col.id)}"></span></button>`,
       )
       .join('');
 
-    columnas.innerHTML = d.columnas
+    columnas.innerHTML = cols
       .map(
         (col, i) => `
         <section class="card col-panel${i === tab ? ' active' : ''}" role="tabpanel" aria-label="${esc(col.titulo)}">
@@ -144,7 +162,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
             <span class="col-tot" data-tot="${esc(col.id)}"></span>
           </header>
           <ol class="filas">
-            ${col.partidos.map((p, j) => fila(mesa, col.id, p.id, String(j + 1), p.nombre)).join('')}
+            ${col.partidos.length ? col.partidos.map((p, j) => fila(mesa, col.id, p.id, String(j + 1), p.nombre)).join('') : sinPartidos(col)}
           </ol>
           <ol class="filas especiales">
             ${fila(mesa, col.id, BLANCO, '', 'Votos en blanco')}
@@ -171,10 +189,16 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </li>`;
   }
 
+  const sinPartidos = (col: Columna) => `
+    <li class="fila-vacia">
+      Todavía no hay partidos en «${esc(col.titulo)}».
+      <a href="${esc(columnas.dataset.partidos)}">Agrégalos en Partidos</a>.
+    </li>`;
+
   /** Totales por columna, avisos y barra de estado de la mesa actual. */
   function pintarEstado(ok = true) {
-    const { colegio, mesa } = actual();
-    const lista = mesas(d);
+    const { distrito, colegio, mesa, cols } = actual();
+    const lista = mesas(d, { distrito: distrito?.id });
     const i = lista.findIndex((u) => u.mesa.id === sel.m);
     anterior.disabled = i <= 0;
     siguiente.disabled = i < 0 || i >= lista.length - 1;
@@ -195,7 +219,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     chequeo.hidden = !mesa;
     if (!mesa) return;
 
-    const totales = d.columnas.map((col) => ({ col, r: resumen(col, [mesa]) }));
+    const totales = cols.map((col) => ({ col, r: resumen(col, [mesa]) }));
     const ns = totales.map((t) => t.r.emitidos);
     const mayor = Math.max(0, ...ns);
     const faltan = totales.filter((t) => t.r.emitidos === 0);
@@ -245,17 +269,22 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     pintarEstado(guardar(d));
   }
 
+  /** Mesa anterior o siguiente dentro del distrito. */
   function irA(paso: number) {
-    const lista = mesas(d);
+    const lista = mesas(d, { distrito: sel.di });
     const i = lista.findIndex((u) => u.mesa.id === sel.m);
     const destino = lista[i + paso];
     if (!destino) return;
-    sel = { c: destino.colegio.id, a: destino.aula.id, m: destino.mesa.id };
+    sel = { di: destino.distrito.id, c: destino.colegio.id, a: destino.aula.id, m: destino.mesa.id };
     pintar();
   }
 
+  selDistrito.addEventListener('change', () => {
+    sel = { di: selDistrito.value, c: '', a: '', m: '' };
+    pintar();
+  });
   selColegio.addEventListener('change', () => {
-    sel = { c: selColegio.value, a: '', m: '' };
+    sel = { ...sel, c: selColegio.value, a: '', m: '' };
     pintar();
   });
   selAula.addEventListener('change', () => {

@@ -7,7 +7,18 @@ import Layout from '../layouts/Layout.astro';
     <h1>Partidos políticos</h1>
     <button type="button" class="btn" id="restaurar">Restaurar lista original</button>
   </div>
-  <div class="grid-partidos" id="columnas"></div>
+  <div id="columnas" class="secciones-partidos">
+    <section>
+      <h2 class="seccion-titulo">Toda la provincia <span>van en la cédula de los 6 distritos</span></h2>
+      <div class="grid-partidos" id="provincia"></div>
+    </section>
+    <section>
+      <h2 class="seccion-titulo">
+        Alcalde distrital <span>una columna más en la cédula de cada distrito, menos Ferreñafe</span>
+      </h2>
+      <div class="grid-partidos" id="distritales"></div>
+    </section>
+  </div>
 </Layout>
 
 <script>
@@ -20,24 +31,25 @@ import Layout from '../layouts/Layout.astro';
     mesas,
     uid,
     votosDe,
+    type Columna,
   } from '../lib/store';
 
   const d = cargar();
   const cont = document.getElementById('columnas')!;
 
-  function pintar() {
-    cont.innerHTML = d.columnas
-      .map(
-        (col, ci) => `
+  function tarjeta(col: Columna, etiqueta: string) {
+    return `
       <section class="card col-partidos" data-col="${esc(col.id)}">
         <header class="col-head">
-          <span class="col-etiqueta">Columna ${ci + 1} · ${col.partidos.length} partidos</span>
+          <span class="col-etiqueta">${esc(etiqueta)} · ${col.partidos.length} partidos</span>
           <input class="input-titulo" data-f="titulo" value="${esc(col.titulo)}" aria-label="Título de la columna" />
         </header>
         <ol class="lista-partidos">
-          ${col.partidos
-            .map(
-              (p, i) => `
+          ${
+            col.partidos.length
+              ? col.partidos
+                  .map(
+                    (p, i) => `
             <li data-p="${esc(p.id)}">
               <span class="num">${i + 1}</span>
               <input class="control" data-f="nombre" value="${esc(p.nombre)}" aria-label="Nombre del partido ${i + 1}" />
@@ -45,15 +57,26 @@ import Layout from '../layouts/Layout.astro';
               <button type="button" class="icon-btn" data-accion="bajar" aria-label="Bajar" title="Bajar" ${i === col.partidos.length - 1 ? 'disabled' : ''}>↓</button>
               <button type="button" class="icon-btn danger" data-accion="quitar" aria-label="Eliminar ${esc(p.nombre)}" title="Eliminar">✕</button>
             </li>`,
-            )
-            .join('')}
+                  )
+                  .join('')
+              : '<li class="lista-vacia">Todavía no hay partidos. Escríbelos en el orden de la cédula.</li>'
+          }
         </ol>
         <form class="nuevo-partido">
           <input class="control" name="nombre" required placeholder="Nombre del nuevo partido" aria-label="Nombre del nuevo partido" autocomplete="off" />
           <button class="btn primary">Crear</button>
         </form>
-      </section>`,
-      )
+      </section>`;
+  }
+
+  function pintar() {
+    const provincia = d.columnas.filter((c) => !c.distrito);
+    const distritales = d.columnas.filter((c) => c.distrito);
+    document.getElementById('provincia')!.innerHTML = provincia
+      .map((col, i) => tarjeta(col, `Columna ${i + 1}`))
+      .join('');
+    document.getElementById('distritales')!.innerHTML = distritales
+      .map((col) => tarjeta(col, `Columna ${provincia.length + 1}`))
       .join('');
   }
 
@@ -118,7 +141,12 @@ import Layout from '../layouts/Layout.astro';
   });
 
   document.getElementById('restaurar')!.addEventListener('click', () => {
-    if (!confirm('¿Restaurar las listas originales de partidos? Se perderán los partidos agregados y sus votos.')) return;
+    if (
+      !confirm(
+        '¿Restaurar las listas originales de partidos? Se perderán los partidos agregados (también los de alcalde distrital) y sus votos.',
+      )
+    )
+      return;
     d.columnas = columnasPorDefecto();
     limpiarVotos(d);
     guardar(d);

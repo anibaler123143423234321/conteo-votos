@@ -1,10 +1,5 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { FUENTE_LOCALES, LOCALES_FERRENAFE, numerosDeMesa } from '../data/locales-ferrenafe';
-
-const numeros = LOCALES_FERRENAFE.flatMap((l) => numerosDeMesa(l.desde, l.mesas)).sort();
-const primera = numeros[0];
-const ultima = numeros[numeros.length - 1];
 ---
 
 <Layout title="Colegios y mesas">
@@ -14,29 +9,15 @@ const ultima = numeros[numeros.length - 1];
   </div>
 
   <section class="card">
-    <div class="config">
-      <label class="campo">
-        <span class="campo-et">Distrito</span>
-        <input id="distrito" autocomplete="off" />
-      </label>
-      <label class="campo">
-        <span class="campo-et">Provincia</span>
-        <input id="provincia" autocomplete="off" />
-      </label>
-      <span class="resumen">
-        {LOCALES_FERRENAFE.length} locales de votación y {numeros.length} mesas ({primera} al {ultima})
-      </span>
-      <button type="button" class="btn" id="cargar-onpe">Restaurar colegios y mesas</button>
+    <div class="segmentos" id="distritos" role="tablist" aria-label="Distritos"></div>
+    <div class="distrito-info">
+      <p class="nota" id="nota-distrito"></p>
+      <button type="button" class="btn" id="restaurar">Restaurar este distrito</button>
     </div>
-    <p class="nota">
-      Fuente: {FUENTE_LOCALES}. La ONPE no publica en qué aula está cada mesa: cada mesa tiene su
-      propia aula (Aula 1, Aula 2…) y puedes ponerles el nombre real abajo, por ejemplo cuando
-      veas el número de mesa pegado en la puerta del aula.
-    </p>
   </section>
 
   <section class="card">
-    <h2 class="card-titulo">Agregar colegio</h2>
+    <h2 class="card-titulo" id="titulo-agregar">Agregar colegio</h2>
     <form class="form-colegio" id="form-colegio">
       <label class="campo campo-nombre">
         <span class="campo-et">Nombre</span>
@@ -60,8 +41,7 @@ const ultima = numeros[numeros.length - 1];
 <script>
   import {
     cargar,
-    colegiosIniciales,
-    electoresDe,
+    colegiosDe,
     entero,
     esc,
     fmt,
@@ -72,53 +52,63 @@ const ultima = numeros[numeros.length - 1];
     nuevaMesa,
     uid,
     type Aula,
+    type Distrito,
   } from '../lib/store';
 
+  const CLAVE_DISTRITO = 'conteo-votos:distrito-colegios';
   const d = cargar();
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-  const distrito = $<HTMLInputElement>('distrito');
-  const provincia = $<HTMLInputElement>('provincia');
   const form = $<HTMLFormElement>('form-colegio');
   const lista = $('lista');
+  const segmentos = $('distritos');
   // Colegios con la lista de aulas desplegada (se mantiene al redibujar).
   const abiertos = new Set<string>();
 
   const limitar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+  const mesasDe = (x: Distrito) => x.colegios.reduce((t, c) => t + c.aulas.reduce((s, a) => s + a.mesas.length, 0), 0);
 
-  distrito.value = d.distrito;
-  provincia.value = d.provincia;
-  distrito.addEventListener('input', () => {
-    d.distrito = distrito.value.trim();
-    guardar(d);
-  });
-  provincia.addEventListener('input', () => {
-    d.provincia = provincia.value.trim();
-    guardar(d);
-  });
+  // Empieza en el distrito elegido aquí antes o, si no, en el del conteo.
+  let distrito: Distrito = d.distritos[0];
+  try {
+    const id =
+      localStorage.getItem(CLAVE_DISTRITO) ??
+      JSON.parse(localStorage.getItem('conteo-votos:seleccion') ?? '{}').di;
+    distrito = d.distritos.find((x) => x.id === id) ?? distrito;
+  } catch {
+    // Primer distrito.
+  }
 
   function pintar() {
-    const todas = mesas(d).map((u) => u.mesa);
-    const aulas = d.colegios.reduce((t, c) => t + c.aulas.length, 0);
-    const electores = electoresDe(todas);
-    $('resumen').textContent =
-      `${d.colegios.length} colegios · ${fmt(aulas)} aulas · ${fmt(todas.length)} mesas` +
-      (electores ? ` · ${fmt(electores)} electores` : '');
+    const colegios = d.distritos.reduce((t, x) => t + x.colegios.length, 0);
+    const total = d.distritos.reduce((t, x) => t + mesasDe(x), 0);
+    $('resumen').textContent = `Provincia de ${d.provincia}: ${d.distritos.length} distritos · ${colegios} colegios · ${fmt(total)} mesas`;
 
-    if (!d.colegios.length) {
-      lista.innerHTML = '<p class="card empty">Todavía no hay colegios. Agrega el primero arriba.</p>';
+    segmentos.innerHTML = d.distritos
+      .map(
+        (x) =>
+          `<button type="button" role="tab" data-di="${esc(x.id)}" aria-selected="${x === distrito}">${esc(x.corto ?? x.nombre)}<span class="tab-n">${fmt(mesasDe(x))}</span></button>`,
+      )
+      .join('');
+
+    const numeros = distrito.colegios.flatMap((c) => c.aulas.flatMap((a) => a.mesas.map((m) => m.numero))).sort();
+    const rango = numeros.length ? ` (${numeros[0]} al ${numeros[numeros.length - 1]})` : '';
+    $('nota-distrito').textContent =
+      `Distrito de ${distrito.nombre}: ${distrito.colegios.length} colegios y ${numeros.length} mesas${rango}. ` +
+      (distrito.confirmado
+        ? 'Números de mesa del 4 de octubre. '
+        : 'Los números de mesa son de la segunda vuelta de junio (ONPE) y pueden cambiar para el 4 de octubre: corrígelos abajo cuando tengas la lista. ') +
+      'La ONPE no publica las aulas: cada mesa tiene su propia aula y puedes ponerle el nombre real.';
+    $('titulo-agregar').textContent = `Agregar colegio en ${distrito.nombre}`;
+
+    if (!distrito.colegios.length) {
+      lista.innerHTML = '<p class="card empty">Este distrito todavía no tiene colegios. Agrega el primero arriba.</p>';
       return;
     }
 
-    lista.innerHTML = d.colegios
+    lista.innerHTML = distrito.colegios
       .map((c) => {
         const ms = c.aulas.flatMap((a) => a.mesas);
-        const el = electoresDe(ms);
-        const meta = [
-          c.codigo && `Local ONPE ${esc(c.codigo)}`,
-          `${c.aulas.length} aulas`,
-          `${ms.length} mesas`,
-          el && `${fmt(el)} electores`,
-        ].filter(Boolean);
+        const meta = [c.codigo && `Local ONPE ${esc(c.codigo)}`, `${c.aulas.length} aulas`, `${ms.length} mesas`].filter(Boolean);
         return `
       <section class="card colegio" data-c="${esc(c.id)}">
         <div class="colegio-head">
@@ -140,7 +130,7 @@ const ultima = numeros[numeros.length - 1];
                   ${a.mesas
                     .map(
                       (m) =>
-                        `<input class="control mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa"${m.electores ? ` title="${m.electores} electores hábiles"` : ''} />`,
+                        `<input class="control mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa" />`,
                     )
                     .join('')}
                 </div>
@@ -163,7 +153,7 @@ const ultima = numeros[numeros.length - 1];
   function ajustarMesas(a: Aula, cantidad: number) {
     const n = limitar(cantidad, 1, 50);
     if (n > a.mesas.length) {
-      const numero = numeradorMesas(d);
+      const numero = numeradorMesas(d, distrito.id);
       while (a.mesas.length < n) a.mesas.push(nuevaMesa(numero()));
     } else if (n < a.mesas.length) {
       const conVotos = a.mesas.slice(n).some((m) => mesaContada(d, m));
@@ -172,11 +162,25 @@ const ultima = numeros[numeros.length - 1];
     }
   }
 
-  $('cargar-onpe').addEventListener('click', () => {
-    const hayVotos = mesas(d).some((u) => mesaContada(d, u.mesa));
-    const aviso = hayVotos ? ' Se perderán los votos ya registrados.' : '';
-    if (!confirm(`¿Volver a la lista original de colegios, aulas y mesas?${aviso}`)) return;
-    d.colegios = colegiosIniciales();
+  segmentos.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-di]');
+    const x = d.distritos.find((y) => y.id === b?.dataset.di);
+    if (!x) return;
+    distrito = x;
+    abiertos.clear();
+    try {
+      localStorage.setItem(CLAVE_DISTRITO, x.id);
+    } catch {
+      // No importa si no se puede recordar.
+    }
+    pintar();
+  });
+
+  $('restaurar').addEventListener('click', () => {
+    const hayVotos = mesas(d, { distrito: distrito.id }).some((u) => mesaContada(d, u.mesa));
+    const aviso = hayVotos ? ' Se perderán los votos ya registrados en este distrito.' : '';
+    if (!confirm(`¿Volver a la lista original de colegios y mesas de ${distrito.nombre}?${aviso}`)) return;
+    distrito.colegios = colegiosDe(distrito.id);
     abiertos.clear();
     guardar(d);
     pintar();
@@ -189,9 +193,9 @@ const ultima = numeros[numeros.length - 1];
     if (!nombre) return;
     const nAulas = limitar(entero(datos.get('aulas')), 1, 200);
     const nMesas = limitar(entero(datos.get('mesas')), 1, 50);
-    const numero = numeradorMesas(d);
+    const numero = numeradorMesas(d, distrito.id);
     const id = uid();
-    d.colegios.push({
+    distrito.colegios.push({
       id,
       nombre,
       aulas: Array.from({ length: nAulas }, (_, i) => crearAula(`Aula ${i + 1}`, nMesas, numero)),
@@ -217,7 +221,7 @@ const ultima = numeros[numeros.length - 1];
 
   lista.addEventListener('change', (e) => {
     const el = e.target as HTMLInputElement;
-    const c = d.colegios.find((x) => x.id === el.closest<HTMLElement>('[data-c]')?.dataset.c);
+    const c = distrito.colegios.find((x) => x.id === el.closest<HTMLElement>('[data-c]')?.dataset.c);
     const a = c?.aulas.find((x) => x.id === el.closest<HTMLElement>('[data-aula]')?.dataset.aula);
     if (!c) return;
     const valor = el.value.trim();
@@ -251,13 +255,13 @@ const ultima = numeros[numeros.length - 1];
 
   lista.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
-    const c = d.colegios.find((x) => x.id === b?.closest<HTMLElement>('[data-c]')?.dataset.c);
+    const c = distrito.colegios.find((x) => x.id === b?.closest<HTMLElement>('[data-c]')?.dataset.c);
     if (!b || !c) return;
 
     switch (b.dataset.accion) {
       case 'quitar-colegio':
         if (!confirm(`¿Eliminar "${c.nombre}" con todas sus aulas, mesas y votos?`)) return;
-        d.colegios = d.colegios.filter((x) => x !== c);
+        distrito.colegios = distrito.colegios.filter((x) => x !== c);
         break;
       case 'quitar-aula': {
         const a = c.aulas.find((x) => x.id === b.closest<HTMLElement>('[data-aula]')?.dataset.aula);
@@ -266,7 +270,7 @@ const ultima = numeros[numeros.length - 1];
         break;
       }
       case 'agregar-aula':
-        c.aulas.push(crearAula(`Aula ${c.aulas.length + 1}`, 1, numeradorMesas(d)));
+        c.aulas.push(crearAula(`Aula ${c.aulas.length + 1}`, 1, numeradorMesas(d, distrito.id)));
         break;
     }
     guardar(d);
