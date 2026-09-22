@@ -1,4 +1,5 @@
 // Datos del conteo: se guardan en el navegador (localStorage).
+import { LOCALES_FERRENAFE } from '../data/locales-ferrenafe';
 import { COLUMNAS_POR_DEFECTO } from '../data/partidos';
 
 export interface Partido {
@@ -19,6 +20,8 @@ export type Votos = Record<string, Record<string, number>>;
 export interface Mesa {
   id: string;
   numero: string;
+  /** Electores hábiles según la ONPE (si se conoce). */
+  electores?: number;
   votos: Votos;
 }
 
@@ -30,6 +33,8 @@ export interface Aula {
 
 export interface Colegio {
   id: string;
+  /** Código del local de votación en la ONPE (si se conoce). */
+  codigo?: string;
   nombre: string;
   aulas: Aula[];
 }
@@ -74,12 +79,25 @@ export const uid = () =>
 
 export const columnasPorDefecto = (): Columna[] => structuredClone(COLUMNAS_POR_DEFECTO);
 
+/** Locales de votación de la ONPE, con un aula por mesa (se pueden renombrar). */
+export const colegiosOnpe = (): Colegio[] =>
+  LOCALES_FERRENAFE.map((local) => ({
+    id: uid(),
+    codigo: local.codigo,
+    nombre: local.nombre,
+    aulas: local.mesas.map(([numero, electores], i) => ({
+      id: uid(),
+      nombre: `Aula ${i + 1}`,
+      mesas: [{ id: uid(), numero, electores, votos: {} }],
+    })),
+  }));
+
 export const datosIniciales = (): Datos => ({
   version: 1,
   distrito: 'Ferreñafe',
   provincia: 'Ferreñafe',
   columnas: columnasPorDefecto(),
-  colegios: [],
+  colegios: colegiosOnpe(),
 });
 
 export function esDatos(x: unknown): x is Datos {
@@ -145,6 +163,14 @@ export function resumen(columna: Columna, lista: Mesa[]): Resumen {
   const nulo = suma(NULO);
   return { columna, filas, validos, blanco, nulo, emitidos: validos + blanco + nulo };
 }
+
+/** Nombre del colegio; si hay otro con el mismo nombre, se agrega el código del local. */
+export function nombreColegio(d: Datos, c: Colegio): string {
+  const repetido = d.colegios.some((x) => x !== c && x.nombre === c.nombre);
+  return repetido && c.codigo ? `${c.nombre} (local ${c.codigo})` : c.nombre;
+}
+
+export const electoresDe = (lista: Mesa[]) => lista.reduce((t, m) => t + (m.electores ?? 0), 0);
 
 export const mesaContada = (d: Datos, m: Mesa) =>
   d.columnas.some((c) => resumen(c, [m]).emitidos > 0);

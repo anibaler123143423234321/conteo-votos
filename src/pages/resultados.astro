@@ -41,12 +41,14 @@ import Layout from '../layouts/Layout.astro';
     cargar,
     datosIniciales,
     descargar,
+    electoresDe,
     esDatos,
     esc,
     fmt,
     guardar,
     mesaContada,
     mesas,
+    nombreColegio,
     opciones,
     pct,
     resumen,
@@ -69,7 +71,14 @@ import Layout from '../layouts/Layout.astro';
     const mesa = aula?.mesas.find((x) => x.id === f.mesa);
     f = { colegio: colegio?.id ?? '', aula: aula?.id ?? '', mesa: mesa?.id ?? '' };
 
-    opciones(fColegio, [{ id: '', nombre: 'Todos los colegios' }, ...d.colegios], f.colegio);
+    opciones(
+      fColegio,
+      [
+        { id: '', nombre: 'Todos los colegios' },
+        ...d.colegios.map((c) => ({ id: c.id, nombre: nombreColegio(d, c) })),
+      ],
+      f.colegio,
+    );
     opciones(fAula, [{ id: '', nombre: 'Todas las aulas' }, ...(colegio?.aulas ?? [])], f.aula);
     opciones(
       fMesa,
@@ -84,7 +93,10 @@ import Layout from '../layouts/Layout.astro';
 
     const lista = mesas(d, f).map((u) => u.mesa);
     const contadas = lista.filter((m) => mesaContada(d, m)).length;
-    $('progreso').textContent = `${contadas} de ${lista.length} mesas con votos`;
+    const electores = electoresDe(lista);
+    $('progreso').textContent =
+      `${contadas} de ${lista.length} mesas con votos` +
+      (electores ? ` · ${fmt(electores)} electores hábiles` : '');
 
     $('resultados').innerHTML = d.columnas
       .map((col) => {
@@ -137,9 +149,18 @@ import Layout from '../layouts/Layout.astro';
   const hoy = () => new Date().toISOString().slice(0, 10);
 
   $('csv').addEventListener('click', () => {
-    const filas = [['Distrito', 'Colegio', 'Aula', 'Mesa', 'Columna', 'N°', 'Partido', 'Votos']];
+    const filas = [
+      ['Distrito', 'Local ONPE', 'Colegio', 'Aula', 'Mesa', 'Electores hábiles', 'Columna', 'N°', 'Partido', 'Votos'],
+    ];
     for (const { colegio, aula, mesa } of mesas(d)) {
-      const base = [d.distrito, colegio.nombre, aula.nombre, mesa.numero];
+      const base = [
+        d.distrito,
+        colegio.codigo ?? '',
+        colegio.nombre,
+        aula.nombre,
+        mesa.numero,
+        mesa.electores ? String(mesa.electores) : '',
+      ];
       for (const col of d.columnas) {
         col.partidos.forEach((p, i) =>
           filas.push([...base, col.titulo, String(i + 1), p.nombre, String(votosDe(mesa, col.id, p.id))]),
@@ -182,7 +203,7 @@ import Layout from '../layouts/Layout.astro';
   });
 
   $('borrar-todo').addEventListener('click', () => {
-    if (!confirm('¿Borrar TODO (colegios, aulas, mesas, partidos y votos)? No se puede deshacer.')) return;
+    if (!confirm('¿Borrar TODO y volver al inicio (colegios de la ONPE y partidos originales)? Se pierden todos los votos.')) return;
     d = datosIniciales();
     guardar(d);
     pintar();

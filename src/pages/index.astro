@@ -15,6 +15,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <label>Aula <select id="sel-aula"></select></label>
       <label>Mesa <select id="sel-mesa"></select></label>
     </div>
+    <p class="mesa-info muted" id="mesa-info" hidden></p>
     <div class="barra-mesa">
       <button type="button" class="btn" id="anterior">← Anterior</button>
       <span class="progreso" id="progreso" aria-live="polite"></span>
@@ -43,6 +44,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     guardar,
     mesaContada,
     mesas,
+    nombreColegio,
     opciones,
     ponerVotos,
     resumen,
@@ -93,7 +95,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const { colegio, aula, mesa } = actual();
     $('ubicacion').textContent = `Distrito ${d.distrito} · Provincia ${d.provincia}`;
 
-    opciones(selColegio, d.colegios, sel.c);
+    opciones(
+      selColegio,
+      d.colegios.map((c) => ({ id: c.id, nombre: nombreColegio(d, c) })),
+      sel.c,
+    );
     opciones(selAula, colegio?.aulas ?? [], sel.a);
     opciones(
       selMesa,
@@ -103,6 +109,13 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     selColegio.disabled = !d.colegios.length;
     selAula.disabled = !colegio?.aulas.length;
     selMesa.disabled = !aula?.mesas.length;
+
+    const info = [
+      colegio?.codigo && `Local ONPE ${colegio.codigo}`,
+      mesa?.electores && `${fmt(mesa.electores)} electores hábiles`,
+    ].filter(Boolean);
+    $('mesa-info').textContent = info.join(' · ');
+    $('mesa-info').hidden = !info.length;
 
     pintarProgreso();
 
@@ -172,16 +185,25 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (tt) tt.textContent = `${fmt(r.emitidos)} ${r.emitidos === 1 ? 'voto' : 'votos'}`;
   }
 
-  // Cada elector marca todas las columnas: los totales deberían coincidir.
   function pintarAviso(mesa: Mesa) {
     const totales = d.columnas.map((col) => ({ col, n: resumen(col, [mesa]).emitidos }));
-    const distintos = new Set(totales.map((t) => t.n)).size > 1;
-    aviso.hidden = !distintos;
-    if (distintos) {
-      aviso.textContent = `Revisa el conteo: los totales no coinciden entre columnas (${totales
-        .map((t) => `${t.col.corto || t.col.titulo}: ${fmt(t.n)}`)
-        .join(' · ')}).`;
+    const avisos: string[] = [];
+    // Cada elector marca todas las columnas: los totales deberían coincidir.
+    if (new Set(totales.map((t) => t.n)).size > 1) {
+      avisos.push(
+        `Revisa el conteo: los totales no coinciden entre columnas (${totales
+          .map((t) => `${t.col.corto || t.col.titulo}: ${fmt(t.n)}`)
+          .join(' · ')}).`,
+      );
     }
+    const mayor = Math.max(0, ...totales.map((t) => t.n));
+    if (mesa.electores && mayor > mesa.electores) {
+      avisos.push(
+        `Hay más votos (${fmt(mayor)}) que electores hábiles (${fmt(mesa.electores)}) en esta mesa.`,
+      );
+    }
+    aviso.hidden = !avisos.length;
+    aviso.innerHTML = avisos.map(esc).join('<br />');
   }
 
   function pintarProgreso() {

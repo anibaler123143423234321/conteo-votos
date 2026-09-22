@@ -1,5 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { FUENTE_LOCALES, LOCALES_FERRENAFE } from '../data/locales-ferrenafe';
+
+const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
 ---
 
 <Layout title="Colegios y mesas">
@@ -12,7 +15,20 @@ import Layout from '../layouts/Layout.astro';
   </section>
 
   <section class="card">
-    <h2>2. Nuevo colegio</h2>
+    <h2>2. Colegios (locales de votación)</h2>
+    <p class="muted">
+      Ya vienen cargados los {LOCALES_FERRENAFE.length} locales de votación del distrito de
+      Ferreñafe con sus {totalMesas} mesas y electores hábiles ({FUENTE_LOCALES}). Para las
+      elecciones del 4 de octubre la ONPE puede cambiar algunos números de mesa: revísalos en
+      <a href="https://consultaelectoral.onpe.gob.pe/" target="_blank" rel="noopener">
+        consultaelectoral.onpe.gob.pe
+      </a> y corrígelos abajo si hace falta.
+    </p>
+    <div class="acciones">
+      <button type="button" class="btn" id="cargar-onpe">Volver a cargar locales de la ONPE</button>
+    </div>
+
+    <h2 class="subtitulo">Agregar otro colegio</h2>
     <form class="form-colegio" id="form-colegio">
       <label class="campo-nombre">
         Nombre del colegio
@@ -34,8 +50,11 @@ import Layout from '../layouts/Layout.astro';
 <script>
   import {
     cargar,
+    colegiosOnpe,
+    electoresDe,
     entero,
     esc,
+    fmt,
     guardar,
     mesaContada,
     mesas,
@@ -51,6 +70,8 @@ import Layout from '../layouts/Layout.astro';
   const provincia = $<HTMLInputElement>('provincia');
   const form = $<HTMLFormElement>('form-colegio');
   const lista = $('lista');
+  // Colegios con la lista de aulas desplegada (se mantiene al redibujar).
+  const abiertos = new Set<string>();
 
   const limitar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
@@ -66,9 +87,12 @@ import Layout from '../layouts/Layout.astro';
   });
 
   function pintar() {
-    const total = mesas(d).length;
+    const todas = mesas(d).map((u) => u.mesa);
     const aulas = d.colegios.reduce((t, c) => t + c.aulas.length, 0);
-    $('resumen').textContent = `${d.colegios.length} colegios · ${aulas} aulas · ${total} mesas`;
+    const electores = electoresDe(todas);
+    $('resumen').textContent =
+      `${d.colegios.length} colegios · ${aulas} aulas · ${todas.length} mesas` +
+      (electores ? ` · ${fmt(electores)} electores` : '');
 
     if (!d.colegios.length) {
       lista.innerHTML = '<p class="card empty">Todavía no hay colegios. Agrega el primero arriba.</p>';
@@ -76,34 +100,51 @@ import Layout from '../layouts/Layout.astro';
     }
 
     lista.innerHTML = d.colegios
-      .map(
-        (c) => `
+      .map((c) => {
+        const ms = c.aulas.flatMap((a) => a.mesas);
+        const el = electoresDe(ms);
+        const meta = [
+          c.codigo && `Local ONPE ${esc(c.codigo)}`,
+          `${c.aulas.length} aulas`,
+          `${ms.length} mesas`,
+          el && `${fmt(el)} electores`,
+        ].filter(Boolean);
+        return `
       <section class="card" data-c="${esc(c.id)}">
         <div class="colegio-head">
           <input class="input-titulo" data-f="colegio" value="${esc(c.nombre)}" aria-label="Nombre del colegio" />
           <button type="button" class="btn danger" data-accion="quitar-colegio">Eliminar</button>
         </div>
-        <div class="aulas">
-          ${c.aulas
-            .map(
-              (a) => `
-            <div class="aula" data-aula="${esc(a.id)}">
-              <label class="campo-aula">Aula <input data-f="aula" value="${esc(a.nombre)}" /></label>
-              <label class="campo-cant">Cantidad de mesas <input type="number" min="1" max="50" data-f="cantidad" value="${a.mesas.length}" /></label>
-              <div class="mesas-nums">
-                N° de mesa
-                <div class="chips">
-                  ${a.mesas.map((m) => `<input class="mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa" />`).join('')}
+        <p class="colegio-meta muted">${meta.join(' · ')}</p>
+        <details ${abiertos.has(c.id) ? 'open' : ''}>
+          <summary>Ver aulas y mesas</summary>
+          <div class="aulas">
+            ${c.aulas
+              .map(
+                (a) => `
+              <div class="aula" data-aula="${esc(a.id)}">
+                <label class="campo-aula">Aula <input data-f="aula" value="${esc(a.nombre)}" /></label>
+                <label class="campo-cant">Cantidad de mesas <input type="number" min="1" max="50" data-f="cantidad" value="${a.mesas.length}" /></label>
+                <div class="mesas-nums">
+                  N° de mesa
+                  <div class="chips">
+                    ${a.mesas
+                      .map(
+                        (m) =>
+                          `<input class="mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa"${m.electores ? ` title="${m.electores} electores hábiles"` : ''} />`,
+                      )
+                      .join('')}
+                  </div>
                 </div>
-              </div>
-              <button type="button" class="icon-btn danger" data-accion="quitar-aula" aria-label="Eliminar ${esc(a.nombre)}" title="Eliminar aula">✕</button>
-            </div>`,
-            )
-            .join('')}
-        </div>
-        <button type="button" class="btn" data-accion="agregar-aula">+ Agregar aula</button>
-      </section>`,
-      )
+                <button type="button" class="icon-btn danger" data-accion="quitar-aula" aria-label="Eliminar ${esc(a.nombre)}" title="Eliminar aula">✕</button>
+              </div>`,
+              )
+              .join('')}
+          </div>
+          <button type="button" class="btn" data-accion="agregar-aula">+ Agregar aula</button>
+        </details>
+      </section>`;
+      })
       .join('');
   }
 
@@ -123,6 +164,16 @@ import Layout from '../layouts/Layout.astro';
     }
   }
 
+  $('cargar-onpe').addEventListener('click', () => {
+    const hayVotos = mesas(d).some((u) => mesaContada(d, u.mesa));
+    const aviso = hayVotos ? ' Se perderán los votos ya registrados.' : '';
+    if (!confirm(`¿Reemplazar los colegios actuales por los locales de votación de la ONPE?${aviso}`)) return;
+    d.colegios = colegiosOnpe();
+    abiertos.clear();
+    guardar(d);
+    pintar();
+  });
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const datos = new FormData(form);
@@ -131,15 +182,30 @@ import Layout from '../layouts/Layout.astro';
     const nAulas = limitar(entero(datos.get('aulas')), 1, 200);
     const nMesas = limitar(entero(datos.get('mesas')), 1, 50);
     const numero = numeradorMesas(d);
+    const id = uid();
     d.colegios.push({
-      id: uid(),
+      id,
       nombre,
       aulas: Array.from({ length: nAulas }, (_, i) => crearAula(`Aula ${i + 1}`, nMesas, numero)),
     });
+    abiertos.add(id);
     guardar(d);
     form.reset();
     pintar();
   });
+
+  // El evento toggle no burbujea: se escucha en captura.
+  lista.addEventListener(
+    'toggle',
+    (e) => {
+      const det = e.target as HTMLDetailsElement;
+      const id = det.closest<HTMLElement>('[data-c]')?.dataset.c;
+      if (!id) return;
+      if (det.open) abiertos.add(id);
+      else abiertos.delete(id);
+    },
+    true,
+  );
 
   lista.addEventListener('change', (e) => {
     const el = e.target as HTMLInputElement;

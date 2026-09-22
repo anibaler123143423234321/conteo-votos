@@ -365,6 +365,11 @@ select:disabled {
 
 /* ---------- Conteo ---------- */
 
+.mesa-info {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+
 .barra-mesa {
   display: flex;
   align-items: center;
@@ -678,6 +683,25 @@ tfoot .total td {
   .form-colegio .btn {
     grid-column: 1 / -1;
   }
+}
+
+.subtitulo {
+  margin-top: 20px;
+}
+
+.colegio-meta {
+  margin: 2px 0 8px;
+  padding-left: 6px;
+  font-size: 0.85rem;
+}
+
+details summary {
+  cursor: pointer;
+  width: fit-content;
+  padding: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .colegio-head {
