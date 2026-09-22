@@ -15,9 +15,13 @@ Web simple hecha con [Astro](https://astro.build) para contar votos por mesa
 3. **Conteo** — elige colegio → aula → mesa y anota la cantidad de votos de cada partido
    (con los botones − / + o escribiendo el número), además de votos en blanco y nulos.
    Se guarda solo. Si los totales de las columnas no coinciden, aparece un aviso.
+   Con teclado, <kbd>Enter</kbd> pasa al siguiente partido. En computadora las 3 columnas
+   entran en una sola pantalla; en celular se cambia de columna con las pestañas.
 4. **Resultados** — totales y porcentajes por columna, filtrando por colegio, aula o mesa.
    Desde ahí puedes descargar un CSV para Excel o un respaldo en JSON (y cargarlo en otra
    computadora).
+
+El botón de la luna/sol (arriba a la derecha) cambia entre modo claro y oscuro.
 
 Los datos se guardan en el navegador (`localStorage`), no hay servidor ni base de datos.
 Descarga un respaldo de vez en cuando.

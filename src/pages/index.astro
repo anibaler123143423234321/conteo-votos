@@ -5,21 +5,33 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <Layout title="Conteo por mesa">
-  <section class="card">
-    <div class="page-head">
-      <h1>Conteo por mesa</h1>
-      <span class="muted" id="ubicacion"></span>
+  <h1 class="sr-only">Conteo por mesa</h1>
+
+  <section class="card barra-sel" aria-label="Elegir mesa">
+    <div class="selectores">
+      <label class="campo campo-colegio">
+        <span class="campo-et">Colegio</span>
+        <select id="sel-colegio"></select>
+      </label>
+      <label class="campo">
+        <span class="campo-et">Aula</span>
+        <select id="sel-aula"></select>
+      </label>
+      <label class="campo">
+        <span class="campo-et">Mesa</span>
+        <select id="sel-mesa"></select>
+      </label>
+      <div class="nav-mesa">
+        <button type="button" class="btn icono" id="anterior" aria-label="Mesa anterior" title="Mesa anterior">‹</button>
+        <button type="button" class="btn icono" id="siguiente" aria-label="Mesa siguiente" title="Mesa siguiente">›</button>
+      </div>
     </div>
-    <div class="grid-3">
-      <label>Colegio <select id="sel-colegio"></select></label>
-      <label>Aula <select id="sel-aula"></select></label>
-      <label>Mesa <select id="sel-mesa"></select></label>
-    </div>
-    <p class="mesa-info muted" id="mesa-info" hidden></p>
-    <div class="barra-mesa">
-      <button type="button" class="btn" id="anterior">← Anterior</button>
-      <span class="progreso" id="progreso" aria-live="polite"></span>
-      <button type="button" class="btn" id="siguiente">Siguiente →</button>
+    <div class="estado-mesa">
+      <span class="info" id="info"></span>
+      <span class="chips-estado" aria-live="polite">
+        <span class="chip" id="chequeo"></span>
+        <span class="chip" id="guardado"></span>
+      </span>
     </div>
   </section>
 
@@ -28,7 +40,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <a class="btn primary" href={`${base}/colegios`}>Ir a Colegios y mesas</a>
   </section>
 
-  <div class="aviso" id="aviso" role="status" hidden></div>
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
   <div class="columnas" id="columnas"></div>
 </Layout>
@@ -61,15 +72,15 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const selMesa = $<HTMLSelectElement>('sel-mesa');
   const anterior = $<HTMLButtonElement>('anterior');
   const siguiente = $<HTMLButtonElement>('siguiente');
-  const progreso = $('progreso');
+  const info = $('info');
+  const chequeo = $('chequeo');
+  const guardado = $('guardado');
   const vacio = $('vacio');
-  const aviso = $('aviso');
   const tabs = $('tabs');
   const columnas = $('columnas');
 
   let sel = { c: '', a: '', m: '' };
   let tab = 0;
-  let guardadoOk = true;
 
   try {
     Object.assign(sel, JSON.parse(localStorage.getItem(CLAVE_SEL) ?? '{}'));
@@ -93,7 +104,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   function pintar() {
     const { colegio, aula, mesa } = actual();
-    $('ubicacion').textContent = `Distrito ${d.distrito} · Provincia ${d.provincia}`;
 
     opciones(
       selColegio,
@@ -101,23 +111,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       sel.c,
     );
     opciones(selAula, colegio?.aulas ?? [], sel.a);
-    opciones(
-      selMesa,
-      (aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: `Mesa ${m.numero}` })),
-      sel.m,
-    );
+    opciones(selMesa, (aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: m.numero })), sel.m);
     selColegio.disabled = !d.colegios.length;
     selAula.disabled = !colegio?.aulas.length;
     selMesa.disabled = !aula?.mesas.length;
-
-    const info = [
-      colegio?.codigo && `Local ONPE ${colegio.codigo}`,
-      mesa?.electores && `${fmt(mesa.electores)} electores hábiles`,
-    ].filter(Boolean);
-    $('mesa-info').textContent = info.join(' · ');
-    $('mesa-info').hidden = !info.length;
-
-    pintarProgreso();
 
     vacio.hidden = !!mesa;
     tabs.hidden = !mesa;
@@ -126,22 +123,25 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         ? 'Esta aula todavía no tiene mesas.'
         : 'Aún no hay colegios registrados. Primero crea los colegios, aulas y mesas.';
       columnas.innerHTML = '';
-      aviso.hidden = true;
+      pintarEstado();
       return;
     }
 
     tabs.innerHTML = d.columnas
       .map(
         (col, i) =>
-          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}">${esc(col.corto || col.titulo)}<span class="tab-total" data-tt="${esc(col.id)}"></span></button>`,
+          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(col.titulo)}">${esc(col.corto || col.titulo)}<span class="tab-n" data-tt="${esc(col.id)}"></span></button>`,
       )
       .join('');
 
     columnas.innerHTML = d.columnas
       .map(
         (col, i) => `
-        <section class="card col-panel${i === tab ? ' active' : ''}" role="tabpanel">
-          <h2>${esc(col.titulo)}</h2>
+        <section class="card col-panel${i === tab ? ' active' : ''}" role="tabpanel" aria-label="${esc(col.titulo)}">
+          <header class="col-head">
+            <h2 title="${esc(col.titulo)}">${esc(col.titulo)}</h2>
+            <span class="col-tot" data-tot="${esc(col.id)}"></span>
+          </header>
           <ol class="filas">
             ${col.partidos.map((p, j) => fila(mesa, col.id, p.id, String(j + 1), p.nombre)).join('')}
           </ol>
@@ -149,83 +149,97 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
             ${fila(mesa, col.id, BLANCO, '', 'Votos en blanco')}
             ${fila(mesa, col.id, NULO, '', 'Votos nulos')}
           </ol>
-          <dl class="totales" data-tot="${esc(col.id)}"></dl>
         </section>`,
       )
       .join('');
 
-    d.columnas.forEach((col) => pintarTotales(mesa, col.id));
-    pintarAviso(mesa);
+    pintarEstado();
   }
 
   function fila(mesa: Mesa, col: string, p: string, num: string, nombre: string) {
+    const v = votosDe(mesa, col, p);
     return `
-      <li class="fila" data-col="${esc(col)}" data-p="${esc(p)}">
+      <li class="fila${v > 0 ? ' con-votos' : ''}" data-col="${esc(col)}" data-p="${esc(p)}">
         <span class="num">${num}</span>
-        <span class="nombre">${esc(nombre)}</span>
-        <div class="stepper">
-          <button type="button" data-d="-1" aria-label="Restar un voto a ${esc(nombre)}">−</button>
-          <input type="number" inputmode="numeric" min="0" step="1" value="${votosDe(mesa, col, p)}" aria-label="Votos de ${esc(nombre)}" />
-          <button type="button" data-d="1" aria-label="Sumar un voto a ${esc(nombre)}">+</button>
-        </div>
+        <span class="nombre" title="${esc(nombre)}">${esc(nombre)}</span>
+        <span class="stepper">
+          <button type="button" data-d="-1" tabindex="-1" aria-label="Restar un voto a ${esc(nombre)}">−</button>
+          <input type="number" inputmode="numeric" enterkeyhint="next" min="0" step="1" value="${v}" aria-label="Votos de ${esc(nombre)}" />
+          <button type="button" data-d="1" tabindex="-1" aria-label="Sumar un voto a ${esc(nombre)}">+</button>
+        </span>
       </li>`;
   }
 
-  function pintarTotales(mesa: Mesa, colId: string) {
-    const col = d.columnas.find((c) => c.id === colId);
-    const el = columnas.querySelector(`[data-tot="${CSS.escape(colId)}"]`);
-    if (!col || !el) return;
-    const r = resumen(col, [mesa]);
-    el.innerHTML = `
-      <div><dt>Válidos</dt><dd>${fmt(r.validos)}</dd></div>
-      <div><dt>En blanco</dt><dd>${fmt(r.blanco)}</dd></div>
-      <div><dt>Nulos</dt><dd>${fmt(r.nulo)}</dd></div>
-      <div class="total"><dt>Total emitidos</dt><dd>${fmt(r.emitidos)}</dd></div>`;
-    const tt = tabs.querySelector(`[data-tt="${CSS.escape(colId)}"]`);
-    if (tt) tt.textContent = `${fmt(r.emitidos)} ${r.emitidos === 1 ? 'voto' : 'votos'}`;
-  }
-
-  function pintarAviso(mesa: Mesa) {
-    const totales = d.columnas.map((col) => ({ col, n: resumen(col, [mesa]).emitidos }));
-    const avisos: string[] = [];
-    // Cada elector marca todas las columnas: los totales deberían coincidir.
-    if (new Set(totales.map((t) => t.n)).size > 1) {
-      avisos.push(
-        `Revisa el conteo: los totales no coinciden entre columnas (${totales
-          .map((t) => `${t.col.corto || t.col.titulo}: ${fmt(t.n)}`)
-          .join(' · ')}).`,
-      );
-    }
-    const mayor = Math.max(0, ...totales.map((t) => t.n));
-    if (mesa.electores && mayor > mesa.electores) {
-      avisos.push(
-        `Hay más votos (${fmt(mayor)}) que electores hábiles (${fmt(mesa.electores)}) en esta mesa.`,
-      );
-    }
-    aviso.hidden = !avisos.length;
-    aviso.innerHTML = avisos.map(esc).join('<br />');
-  }
-
-  function pintarProgreso() {
+  /** Totales por columna, avisos y barra de estado de la mesa actual. */
+  function pintarEstado(ok = true) {
+    const { colegio, mesa } = actual();
     const lista = mesas(d);
     const i = lista.findIndex((u) => u.mesa.id === sel.m);
-    const contadas = lista.filter((u) => mesaContada(d, u.mesa)).length;
-    progreso.textContent = lista.length
-      ? `Mesa ${i + 1} de ${lista.length} · ${contadas} con votos · ${guardadoOk ? 'Guardado' : '⚠ No se pudo guardar'}`
-      : '';
     anterior.disabled = i <= 0;
     siguiente.disabled = i < 0 || i >= lista.length - 1;
+
+    const contadas = lista.filter((u) => mesaContada(d, u.mesa)).length;
+    info.textContent = [
+      colegio?.codigo && `Local ${colegio.codigo}`,
+      mesa?.electores && `${fmt(mesa.electores)} electores`,
+      i >= 0 && `Mesa ${i + 1}/${lista.length}`,
+      lista.length && `${contadas} ${contadas === 1 ? 'contada' : 'contadas'}`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    guardado.className = ok ? 'chip' : 'chip error';
+    guardado.textContent = ok ? '✓ Guardado' : '⚠ No se pudo guardar';
+    guardado.hidden = !mesa;
+    chequeo.hidden = !mesa;
+    if (!mesa) return;
+
+    const totales = d.columnas.map((col) => ({ col, r: resumen(col, [mesa]) }));
+    const ns = totales.map((t) => t.r.emitidos);
+    const mayor = Math.max(0, ...ns);
+    const faltan = totales.filter((t) => t.r.emitidos === 0);
+    // Solo se avisa cuando todas las columnas tienen votos y no coinciden.
+    const distintos = !faltan.length && new Set(ns).size > 1;
+
+    for (const { col, r } of totales) {
+      // Cada cédula cuenta en todas las columnas: se marcan las que tienen menos votos.
+      const marcar = distintos && r.emitidos !== mayor;
+      const tot = columnas.querySelector<HTMLElement>(`[data-tot="${CSS.escape(col.id)}"]`);
+      if (tot) {
+        tot.className = marcar ? 'col-tot warn' : 'col-tot';
+        tot.innerHTML = `<b title="${fmt(r.validos)} válidos · ${fmt(r.emitidos)} emitidos">${fmt(r.emitidos)}</b>`;
+      }
+      const tt = tabs.querySelector<HTMLElement>(`[data-tt="${CSS.escape(col.id)}"]`);
+      if (tt) {
+        tt.className = marcar ? 'tab-n warn' : 'tab-n';
+        tt.textContent = fmt(r.emitidos);
+      }
+    }
+
+    if (mesa.electores && mayor > mesa.electores) {
+      chequeo.className = 'chip error';
+      chequeo.textContent = `⚠ Más votos que electores (${fmt(mayor)} de ${fmt(mesa.electores)})`;
+    } else if (distintos) {
+      chequeo.className = 'chip warn';
+      chequeo.textContent = `⚠ Totales no coinciden (${ns.map(fmt).join(' · ')})`;
+    } else if (mayor > 0 && faltan.length) {
+      chequeo.className = 'chip';
+      chequeo.textContent = `Falta: ${faltan.map((t) => t.col.corto || t.col.titulo).join(', ')}`;
+    } else if (mayor > 0) {
+      chequeo.className = 'chip ok';
+      chequeo.textContent = '✓ Totales coinciden';
+    } else {
+      chequeo.className = 'chip';
+      chequeo.textContent = 'Sin votos todavía';
+    }
   }
 
   function cambiar(li: HTMLElement, n: number) {
     const { mesa } = actual();
     if (!mesa) return;
-    const col = li.dataset.col!;
-    ponerVotos(mesa, col, li.dataset.p!, n);
-    guardadoOk = guardar(d);
-    pintarTotales(mesa, col);
-    pintarAviso(mesa);
-    pintarProgreso();
+    ponerVotos(mesa, li.dataset.col!, li.dataset.p!, n);
+    li.classList.toggle('con-votos', n > 0);
+    pintarEstado(guardar(d));
   }
 
   function irA(paso: number) {
@@ -235,7 +249,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (!destino) return;
     sel = { c: destino.colegio.id, a: destino.aula.id, m: destino.mesa.id };
     pintar();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   selColegio.addEventListener('change', () => {
@@ -286,6 +299,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   columnas.addEventListener('focusin', (e) => {
     const input = e.target as HTMLInputElement;
     if (input.tagName === 'INPUT') input.select();
+  });
+
+  // Enter pasa al siguiente partido, como al llenar el acta.
+  columnas.addEventListener('keydown', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (e.key !== 'Enter' || input.tagName !== 'INPUT') return;
+    e.preventDefault();
+    const visibles = [...columnas.querySelectorAll<HTMLInputElement>('input')].filter((x) => x.offsetParent);
+    const sig = visibles[visibles.indexOf(input) + 1];
+    if (sig) sig.focus();
+    else input.blur();
   });
 
   pintar();

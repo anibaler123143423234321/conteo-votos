@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout title="Partidos">
-  <div class="page-head">
+  <div class="cabecera">
     <h1>Partidos políticos</h1>
     <button type="button" class="btn" id="restaurar">Restaurar lista original</button>
   </div>
@@ -29,26 +29,28 @@ import Layout from '../layouts/Layout.astro';
     cont.innerHTML = d.columnas
       .map(
         (col, ci) => `
-      <section class="card" data-col="${esc(col.id)}">
-        <div class="col-etiqueta">Columna ${ci + 1} · ${col.partidos.length} partidos</div>
-        <input class="input-titulo" data-f="titulo" value="${esc(col.titulo)}" aria-label="Título de la columna" />
+      <section class="card col-partidos" data-col="${esc(col.id)}">
+        <header class="col-head">
+          <span class="col-etiqueta">Columna ${ci + 1} · ${col.partidos.length} partidos</span>
+          <input class="input-titulo" data-f="titulo" value="${esc(col.titulo)}" aria-label="Título de la columna" />
+        </header>
         <ol class="lista-partidos">
           ${col.partidos
             .map(
               (p, i) => `
             <li data-p="${esc(p.id)}">
               <span class="num">${i + 1}</span>
-              <input data-f="nombre" value="${esc(p.nombre)}" aria-label="Nombre del partido ${i + 1}" />
-              <button type="button" class="icon-btn" data-accion="subir" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>↑</button>
-              <button type="button" class="icon-btn" data-accion="bajar" aria-label="Bajar" ${i === col.partidos.length - 1 ? 'disabled' : ''}>↓</button>
-              <button type="button" class="icon-btn danger" data-accion="quitar" aria-label="Eliminar ${esc(p.nombre)}">✕</button>
+              <input class="control" data-f="nombre" value="${esc(p.nombre)}" aria-label="Nombre del partido ${i + 1}" />
+              <button type="button" class="icon-btn" data-accion="subir" aria-label="Subir" title="Subir" ${i === 0 ? 'disabled' : ''}>↑</button>
+              <button type="button" class="icon-btn" data-accion="bajar" aria-label="Bajar" title="Bajar" ${i === col.partidos.length - 1 ? 'disabled' : ''}>↓</button>
+              <button type="button" class="icon-btn danger" data-accion="quitar" aria-label="Eliminar ${esc(p.nombre)}" title="Eliminar">✕</button>
             </li>`,
             )
             .join('')}
         </ol>
         <form class="nuevo-partido">
-          <input name="nombre" required placeholder="Nombre del nuevo partido" aria-label="Nombre del nuevo partido" autocomplete="off" />
-          <button class="btn primary">Crear partido</button>
+          <input class="control" name="nombre" required placeholder="Nombre del nuevo partido" aria-label="Nombre del nuevo partido" autocomplete="off" />
+          <button class="btn primary">Crear</button>
         </form>
       </section>`,
       )

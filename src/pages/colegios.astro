@@ -6,44 +6,53 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
 ---
 
 <Layout title="Colegios y mesas">
+  <div class="cabecera">
+    <h1>Colegios y mesas</h1>
+    <span class="muted" id="resumen"></span>
+  </div>
+
   <section class="card">
-    <h1>1. Distrito</h1>
-    <div class="grid-3">
-      <label>Distrito <input id="distrito" autocomplete="off" /></label>
-      <label>Provincia <input id="provincia" autocomplete="off" /></label>
+    <div class="config">
+      <label class="campo">
+        <span class="campo-et">Distrito</span>
+        <input id="distrito" autocomplete="off" />
+      </label>
+      <label class="campo">
+        <span class="campo-et">Provincia</span>
+        <input id="provincia" autocomplete="off" />
+      </label>
+      <span class="resumen">
+        {LOCALES_FERRENAFE.length} locales de votación y {totalMesas} mesas cargados de la ONPE
+      </span>
+      <button type="button" class="btn" id="cargar-onpe">Recargar locales ONPE</button>
     </div>
+    <p class="nota">
+      Fuente: {FUENTE_LOCALES}. Para el 4 de octubre la ONPE puede cambiar algunos números de
+      mesa: revísalos en{' '}
+      <a href="https://consultaelectoral.onpe.gob.pe/" target="_blank" rel="noopener">consultaelectoral.onpe.gob.pe</a>{' '}
+      y corrígelos abajo si hace falta.
+    </p>
   </section>
 
   <section class="card">
-    <h2>2. Colegios (locales de votación)</h2>
-    <p class="muted">
-      Ya vienen cargados los {LOCALES_FERRENAFE.length} locales de votación del distrito de
-      Ferreñafe con sus {totalMesas} mesas y electores hábiles ({FUENTE_LOCALES}). Para las
-      elecciones del 4 de octubre la ONPE puede cambiar algunos números de mesa: revísalos en
-      <a href="https://consultaelectoral.onpe.gob.pe/" target="_blank" rel="noopener">
-        consultaelectoral.onpe.gob.pe
-      </a> y corrígelos abajo si hace falta.
-    </p>
-    <div class="acciones">
-      <button type="button" class="btn" id="cargar-onpe">Volver a cargar locales de la ONPE</button>
-    </div>
-
-    <h2 class="subtitulo">Agregar otro colegio</h2>
+    <h2 class="card-titulo">Agregar colegio</h2>
     <form class="form-colegio" id="form-colegio">
-      <label class="campo-nombre">
-        Nombre del colegio
+      <label class="campo campo-nombre">
+        <span class="campo-et">Nombre</span>
         <input name="nombre" required placeholder="Ej.: I.E. San Martín" autocomplete="off" />
       </label>
-      <label>Cantidad de aulas <input name="aulas" type="number" min="1" max="200" value="1" required /></label>
-      <label>Mesas por aula <input name="mesas" type="number" min="1" max="50" value="1" required /></label>
-      <button class="btn primary">Agregar colegio</button>
+      <label class="campo">
+        <span class="campo-et">Aulas</span>
+        <input name="aulas" type="number" inputmode="numeric" min="1" max="200" value="1" required />
+      </label>
+      <label class="campo">
+        <span class="campo-et">Mesas por aula</span>
+        <input name="mesas" type="number" inputmode="numeric" min="1" max="50" value="1" required />
+      </label>
+      <button class="btn primary">Agregar</button>
     </form>
   </section>
 
-  <div class="page-head">
-    <h2>3. Aulas y mesas</h2>
-    <span class="muted" id="resumen"></span>
-  </div>
   <div class="lista-colegios" id="lista"></div>
 </Layout>
 
@@ -91,7 +100,7 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
     const aulas = d.colegios.reduce((t, c) => t + c.aulas.length, 0);
     const electores = electoresDe(todas);
     $('resumen').textContent =
-      `${d.colegios.length} colegios · ${aulas} aulas · ${todas.length} mesas` +
+      `${d.colegios.length} colegios · ${fmt(aulas)} aulas · ${fmt(todas.length)} mesas` +
       (electores ? ` · ${fmt(electores)} electores` : '');
 
     if (!d.colegios.length) {
@@ -110,31 +119,29 @@ const totalMesas = LOCALES_FERRENAFE.reduce((t, l) => t + l.mesas.length, 0);
           el && `${fmt(el)} electores`,
         ].filter(Boolean);
         return `
-      <section class="card" data-c="${esc(c.id)}">
+      <section class="card colegio" data-c="${esc(c.id)}">
         <div class="colegio-head">
           <input class="input-titulo" data-f="colegio" value="${esc(c.nombre)}" aria-label="Nombre del colegio" />
-          <button type="button" class="btn danger" data-accion="quitar-colegio">Eliminar</button>
+          <button type="button" class="icon-btn danger" data-accion="quitar-colegio" aria-label="Eliminar colegio" title="Eliminar colegio">✕</button>
         </div>
-        <p class="colegio-meta muted">${meta.join(' · ')}</p>
+        <p class="colegio-meta">${meta.join(' · ')}</p>
         <details ${abiertos.has(c.id) ? 'open' : ''}>
-          <summary>Ver aulas y mesas</summary>
+          <summary>Aulas y mesas</summary>
           <div class="aulas">
             ${c.aulas
               .map(
                 (a) => `
               <div class="aula" data-aula="${esc(a.id)}">
-                <label class="campo-aula">Aula <input data-f="aula" value="${esc(a.nombre)}" /></label>
-                <label class="campo-cant">Cantidad de mesas <input type="number" min="1" max="50" data-f="cantidad" value="${a.mesas.length}" /></label>
-                <div class="mesas-nums">
-                  N° de mesa
-                  <div class="chips">
-                    ${a.mesas
-                      .map(
-                        (m) =>
-                          `<input class="mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa"${m.electores ? ` title="${m.electores} electores hábiles"` : ''} />`,
-                      )
-                      .join('')}
-                  </div>
+                <label class="campo"><span class="campo-et">Aula</span><input data-f="aula" value="${esc(a.nombre)}" /></label>
+                <label class="campo"><span class="campo-et">Mesas</span><input type="number" inputmode="numeric" min="1" max="50" data-f="cantidad" value="${a.mesas.length}" /></label>
+                <div class="chips">
+                  <span class="campo-et">N°</span>
+                  ${a.mesas
+                    .map(
+                      (m) =>
+                        `<input class="control mesa-num" data-f="mesa" data-mesa="${esc(m.id)}" value="${esc(m.numero)}" aria-label="Número de mesa"${m.electores ? ` title="${m.electores} electores hábiles"` : ''} />`,
+                    )
+                    .join('')}
                 </div>
                 <button type="button" class="icon-btn danger" data-accion="quitar-aula" aria-label="Eliminar ${esc(a.nombre)}" title="Eliminar aula">✕</button>
               </div>`,

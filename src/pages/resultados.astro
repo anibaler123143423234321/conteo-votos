@@ -3,28 +3,39 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout title="Resultados">
-  <section class="card">
-    <div class="page-head">
-      <h1>Resultados</h1>
-      <span class="muted" id="progreso"></span>
+  <h1 class="sr-only">Resultados</h1>
+
+  <section class="card barra-sel" aria-label="Filtrar resultados">
+    <div class="selectores sin-nav">
+      <label class="campo campo-colegio">
+        <span class="campo-et">Colegio</span>
+        <select id="f-colegio"></select>
+      </label>
+      <label class="campo">
+        <span class="campo-et">Aula</span>
+        <select id="f-aula"></select>
+      </label>
+      <label class="campo">
+        <span class="campo-et">Mesa</span>
+        <select id="f-mesa"></select>
+      </label>
     </div>
-    <div class="grid-3">
-      <label>Colegio <select id="f-colegio"></select></label>
-      <label>Aula <select id="f-aula"></select></label>
-      <label>Mesa <select id="f-mesa"></select></label>
+    <div class="estado-mesa">
+      <span class="info" id="progreso"></span>
+      <span class="chip" id="avance"></span>
     </div>
   </section>
 
-  <div class="resultados" id="resultados"></div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
+  <div class="columnas" id="resultados"></div>
 
-  <section class="card">
-    <h2>Datos</h2>
-    <p class="muted">
+  <section class="card datos">
+    <p>
       Todo se guarda en este navegador. Descarga un respaldo de vez en cuando para no perder el
       conteo o para pasarlo a otra computadora.
     </p>
     <div class="acciones">
-      <button type="button" class="btn" id="csv">Descargar CSV (Excel)</button>
+      <button type="button" class="btn" id="csv">Descargar CSV</button>
       <button type="button" class="btn" id="json">Descargar respaldo</button>
       <button type="button" class="btn" id="importar">Cargar respaldo</button>
       <input type="file" id="archivo" accept=".json,application/json" hidden />
@@ -58,11 +69,14 @@ import Layout from '../layouts/Layout.astro';
 
   let d: Datos = cargar();
   let f = { colegio: '', aula: '', mesa: '' };
+  let tab = 0;
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const fColegio = $<HTMLSelectElement>('f-colegio');
   const fAula = $<HTMLSelectElement>('f-aula');
   const fMesa = $<HTMLSelectElement>('f-mesa');
+  const tabs = $('tabs');
+  const cont = $('resultados');
   const archivo = $<HTMLInputElement>('archivo');
 
   function pintar() {
@@ -74,46 +88,59 @@ import Layout from '../layouts/Layout.astro';
     opciones(
       fColegio,
       [
-        { id: '', nombre: 'Todos los colegios' },
+        { id: '', nombre: 'Todos' },
         ...d.colegios.map((c) => ({ id: c.id, nombre: nombreColegio(d, c) })),
       ],
       f.colegio,
     );
-    opciones(fAula, [{ id: '', nombre: 'Todas las aulas' }, ...(colegio?.aulas ?? [])], f.aula);
+    opciones(fAula, [{ id: '', nombre: 'Todas' }, ...(colegio?.aulas ?? [])], f.aula);
     opciones(
       fMesa,
-      [
-        { id: '', nombre: 'Todas las mesas' },
-        ...(aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: `Mesa ${m.numero}` })),
-      ],
+      [{ id: '', nombre: 'Todas' }, ...(aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: m.numero }))],
       f.mesa,
     );
     fAula.disabled = !colegio;
     fMesa.disabled = !aula;
 
     const lista = mesas(d, f).map((u) => u.mesa);
-    const contadas = lista.filter((m) => mesaContada(d, m)).length;
+    const conVotos = lista.filter((m) => mesaContada(d, m));
+    const contadas = conVotos.length;
     const electores = electoresDe(lista);
+    // La participación solo se compara con los electores de las mesas ya contadas.
+    const electoresContadas = electoresDe(conVotos);
     $('progreso').textContent =
-      `${contadas} de ${lista.length} mesas con votos` +
-      (electores ? ` · ${fmt(electores)} electores hábiles` : '');
+      `${fmt(lista.length)} mesas` + (electores ? ` · ${fmt(electores)} electores hábiles` : '');
+    const avance = $('avance');
+    avance.textContent = `${fmt(contadas)} de ${fmt(lista.length)} mesas contadas (${pct(contadas, lista.length)})`;
+    avance.className = lista.length && contadas === lista.length ? 'chip ok' : 'chip';
 
-    $('resultados').innerHTML = d.columnas
-      .map((col) => {
-        const r = resumen(col, lista);
+    const resumenes = d.columnas.map((col) => resumen(col, lista));
+
+    tabs.innerHTML = resumenes
+      .map(
+        (r, i) =>
+          `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(r.columna.titulo)}">${esc(r.columna.corto || r.columna.titulo)}<span class="tab-n">${fmt(r.emitidos)}</span></button>`,
+      )
+      .join('');
+
+    cont.innerHTML = resumenes
+      .map((r, i) => {
         const filas = [...r.filas].sort((a, b) => b.votos - a.votos);
         const max = filas[0]?.votos ?? 0;
         return `
-        <section class="card">
-          <h2>${esc(col.titulo)}</h2>
-          <table>
+        <section class="card col-panel${i === tab ? ' active' : ''}" role="tabpanel" aria-label="${esc(r.columna.titulo)}">
+          <header class="col-head">
+            <h2 title="${esc(r.columna.titulo)}">${esc(r.columna.titulo)}</h2>
+            <span class="col-tot"><b title="${fmt(r.validos)} válidos · ${fmt(r.emitidos)} emitidos">${fmt(r.emitidos)}</b></span>
+          </header>
+          <table class="tabla-res">
             <thead><tr><th>Partido</th><th class="n">Votos</th><th class="n">%</th></tr></thead>
             <tbody>
               ${filas
                 .map(
                   (x) => `
                 <tr class="${max > 0 && x.votos === max ? 'lider' : ''}">
-                  <td>${esc(x.partido.nombre)}<div class="barra"><span style="width:${max ? ((x.votos / max) * 100).toFixed(1) : 0}%"></span></div></td>
+                  <td class="partido"><div class="barra" style="--p:${max ? ((x.votos / max) * 100).toFixed(1) : 0}%"><span>${esc(x.partido.nombre)}</span></div></td>
                   <td class="n">${fmt(x.votos)}</td>
                   <td class="n">${pct(x.votos, r.validos)}</td>
                 </tr>`,
@@ -124,10 +151,10 @@ import Layout from '../layouts/Layout.astro';
               <tr><th>Votos válidos</th><td class="n">${fmt(r.validos)}</td><td class="n">${pct(r.validos, r.emitidos)}</td></tr>
               <tr><th>Votos en blanco</th><td class="n">${fmt(r.blanco)}</td><td class="n">${pct(r.blanco, r.emitidos)}</td></tr>
               <tr><th>Votos nulos</th><td class="n">${fmt(r.nulo)}</td><td class="n">${pct(r.nulo, r.emitidos)}</td></tr>
-              <tr class="total"><th>Total emitidos</th><td class="n">${fmt(r.emitidos)}</td><td></td></tr>
+              <tr class="total"><th>Total emitidos</th><td class="n">${fmt(r.emitidos)}</td><td class="n">${electoresContadas ? pct(r.emitidos, electoresContadas) : ''}</td></tr>
             </tfoot>
           </table>
-          <p class="nota">% de partidos sobre votos válidos; blanco, nulos y válidos sobre votos emitidos.</p>
+          <p class="nota">% de partidos sobre votos válidos; válidos, blanco y nulos sobre emitidos${electoresContadas ? '; total sobre electores de las mesas contadas' : ''}.</p>
         </section>`;
       })
       .join('');
@@ -144,6 +171,14 @@ import Layout from '../layouts/Layout.astro';
   fMesa.addEventListener('change', () => {
     f = { ...f, mesa: fMesa.value };
     pintar();
+  });
+
+  tabs.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
+    if (!b) return;
+    tab = Number(b.dataset.tab);
+    tabs.querySelectorAll('[data-tab]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
+    cont.querySelectorAll('.col-panel').forEach((x, i) => x.classList.toggle('active', i === tab));
   });
 
   const hoy = () => new Date().toISOString().slice(0, 10);
