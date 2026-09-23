@@ -59,9 +59,11 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
           Pide al administrador que te dé acceso en Administración › Personeros.
         </p>
         <p class="muted chico">
-          Si eres el administrador: falta el último paso de <code>esquema.sql</code>, la línea con
-          <code>conteo_hacer_admin</code> y tu correo.
+          Si eres el administrador y estás instalando el conteo, corre esta línea en Supabase › SQL Editor › New query
+          y después vuelve a intentar:
         </p>
+        <pre class="datos-acceso" data-linea-admin></pre>
+        <button type="button" class="btn" data-copiar-linea>Copiar línea</button>
         <button type="button" class="btn primary" data-reintentar>Volver a intentar</button>
         <button type="button" class="btn" data-salir>Salir</button>
       </div>
@@ -151,7 +153,12 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       if (estado === 'sin-acceso') {
         sinAcceso.hidden = false;
         usuario()
-          .then((correo) => sinAcceso.querySelectorAll('[data-correo]').forEach((el) => (el.textContent = correo ?? '')))
+          .then((correo) => {
+            sinAcceso.querySelectorAll('[data-correo]').forEach((el) => (el.textContent = correo ?? ''));
+            // La línea exacta para dejar esta cuenta como administrador (solo sirve en el SQL Editor).
+            const linea = sinAcceso.querySelector<HTMLElement>('[data-linea-admin]')!;
+            linea.textContent = `select public.conteo_hacer_admin('${(correo ?? '').replace(/'/g, "''")}');`;
+          })
           .catch(() => {});
       }
       const [texto, clase] = textos[estado];
@@ -181,6 +188,17 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       });
 
     sinAcceso.querySelector('[data-reintentar]')!.addEventListener('click', () => location.reload());
+    sinAcceso.querySelector('[data-copiar-linea]')!.addEventListener('click', async (e) => {
+      const boton = e.currentTarget as HTMLButtonElement;
+      const linea = sinAcceso.querySelector<HTMLElement>('[data-linea-admin]')!;
+      try {
+        await navigator.clipboard.writeText(linea.textContent ?? '');
+        boton.textContent = '✓ Copiada';
+      } catch {
+        // Sin permiso para el portapapeles: queda seleccionada para copiarla a mano.
+        getSelection()?.selectAllChildren(linea);
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
