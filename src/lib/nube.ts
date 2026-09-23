@@ -7,7 +7,7 @@
 // Un solo "trabajador" sube y trae, una cosa a la vez: nunca se traen datos encima de
 // cambios que todavía no se subieron.
 //
-// Roles (tabla usuarios de esquema.sql): el administrador cambia todo; los personeros solo
+// Roles (tabla conteo_usuarios de esquema.sql): el administrador cambia todo; los personeros solo
 // anotan votos. Una cuenta sin rol no ve nada (lo impide Supabase, no solo la web).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardarCopia, VERSION_DATOS } from './copia';
@@ -145,7 +145,7 @@ const AVISO_ESQUEMA = 'Falta correr supabase/esquema.sql en Supabase › SQL Edi
 /** Pregunta a Supabase qué puede hacer esta cuenta y lo recuerda para cuando no haya señal. */
 async function averiguarRol(): Promise<Rol | null> {
   const sb = await cliente();
-  const { data, error } = await sb.rpc('mi_rol');
+  const { data, error } = await sb.rpc('conteo_rol');
   if (error) throw error;
   const rol: Rol | null = data === 'admin' || data === 'personero' ? data : null;
   rolPorAveriguar = false;

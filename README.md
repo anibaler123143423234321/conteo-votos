@@ -66,6 +66,12 @@ Hay **un administrador**, que maneja todo y crea a los personeros desde la web. 
 partidos. Una cuenta que no creó el administrador no ve nada. Esto lo hace cumplir Supabase
 (las políticas de `esquema.sql`), no solo la web.
 
+Se puede usar un proyecto de Supabase que ya tiene otra aplicación: lo nuevo se llama
+`conteo_…` y `esquema.sql` revisa antes que sus tablas no choquen con las de la otra
+aplicación (si chocan, se detiene sin cambiar nada). Pero las cuentas de los personeros
+quedan en ese mismo proyecto: si la otra aplicación deja entrar a cualquier cuenta, también
+podrían entrar ahí. Lo más limpio es un proyecto solo para el conteo.
+
 1. Crea un proyecto en [supabase.com](https://supabase.com) (el plan gratis alcanza).
 2. **Authentication → Users → Add user → Create new user**: crea **tu** cuenta de
    administrador (correo y contraseña, con *Auto Confirm User*). Es la única que se crea ahí.
@@ -79,7 +85,7 @@ partidos. Una cuenta que no creó el administrador no ve nada. Esto lo hace cump
 5. **SQL Editor → New query**: corre esta línea con **tu** correo:
 
    ```sql
-   select public.hacer_admin('tu-correo@gmail.com');
+   select public.conteo_hacer_admin('tu-correo@gmail.com');
    ```
 
    Tiene que responder «Listo: … es el administrador».

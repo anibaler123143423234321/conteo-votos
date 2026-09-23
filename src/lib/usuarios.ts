@@ -1,7 +1,7 @@
 // Personeros: el administrador los crea desde la web (Administración › Personeros).
 // La cuenta se crea con el registro normal de Supabase (desde un cliente aparte, para no
-// cerrar la sesión del administrador) y el acceso se lo da la función dar_acceso de
-// esquema.sql. Sin esa fila en la tabla usuarios, una cuenta no ve ni cambia nada.
+// cerrar la sesión del administrador) y el acceso se lo da la función conteo_dar_acceso de
+// esquema.sql. Sin esa fila en la tabla conteo_usuarios, una cuenta no ve ni cambia nada.
 import { CLAVE_NUBE, URL_NUBE, cliente, fetchConLimite, type Rol } from './nube';
 
 export interface Usuario {
@@ -43,7 +43,7 @@ function explicar(e: ErrorSupabase): string {
 
 export async function listarUsuarios(): Promise<Usuario[]> {
   const { data, error } = await (await cliente())
-    .from('usuarios')
+    .from('conteo_usuarios')
     .select('id, correo, nombre, rol, activo, creado')
     .order('creado');
   if (error) throw error;
@@ -102,17 +102,17 @@ export async function crearPersonero(
 
 /** Da (o devuelve) el acceso de personero a una cuenta. */
 export async function darAcceso(correo: string, nombre = ''): Promise<{ id?: string; error?: string }> {
-  const { data, error } = await (await cliente()).rpc('dar_acceso', { correo_personero: correo, nombre_personero: nombre });
+  const { data, error } = await (await cliente()).rpc('conteo_dar_acceso', { correo_personero: correo, nombre_personero: nombre });
   return error ? { error: texto(error) } : { id: String(data) };
 }
 
 export async function cambiarDatos(id: string, cambios: { nombre?: string; activo?: boolean }): Promise<string | null> {
-  const { error } = await (await cliente()).from('usuarios').update(cambios).eq('id', id);
+  const { error } = await (await cliente()).from('conteo_usuarios').update(cambios).eq('id', id);
   return error ? texto(error) : null;
 }
 
 export async function cambiarClave(id: string, clave: string): Promise<string | null> {
-  const { error } = await (await cliente()).rpc('cambiar_clave', { personero: id, clave });
+  const { error } = await (await cliente()).rpc('conteo_cambiar_clave', { personero: id, clave });
   if (!error) return null;
   if (/permission denied/i.test(error.message))
     return 'Supabase no deja cambiar contraseñas desde aquí. Quítale el acceso y créale otra cuenta con otro correo.';

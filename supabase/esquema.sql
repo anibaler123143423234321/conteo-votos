@@ -1,6 +1,44 @@
 -- Conteo de votos · tablas para Supabase.
 -- Pégalo en Supabase → SQL Editor → New query → Run. Se puede volver a correr sin problema.
 -- Después deja tu cuenta como administrador: está explicado al final de este archivo.
+--
+-- Sirve también en un proyecto que ya usa otra aplicación: lo nuevo se llama conteo_… y,
+-- antes de cambiar nada, se revisa que las tablas con estos nombres sean del conteo.
+
+-- ================= Revisión previa =================
+-- Si ya existe una de estas tablas y es de otra aplicación, se detiene aquí sin cambiar nada.
+do $$
+declare
+  t record;
+  faltan text;
+begin
+  for t in
+    select *
+    from (values
+      ('distritos', array['id', 'nombre', 'corto', 'capital', 'confirmado', 'orden']),
+      ('colegios', array['id', 'distrito_id', 'codigo', 'nombre', 'orden']),
+      ('aulas', array['id', 'colegio_id', 'nombre', 'orden']),
+      ('mesas', array['id', 'aula_id', 'numero', 'electores', 'orden']),
+      ('columnas', array['id', 'titulo', 'corto', 'distrito_id', 'orden']),
+      ('partidos', array['id', 'columna_id', 'partido_id', 'nombre', 'orden']),
+      ('votos_mesa', array['mesa_id', 'votos', 'actualizado', 'actualizado_por']),
+      ('conteo_usuarios', array['id', 'correo', 'nombre', 'rol', 'activo', 'creado'])
+    ) as x (tabla, columnas)
+  loop
+    continue when to_regclass('public.' || t.tabla) is null;
+    select string_agg(c, ', ') into faltan
+    from unnest(t.columnas) as c
+    where not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t.tabla and column_name = c
+    );
+    if faltan is not null then
+      raise exception 'Ya existe la tabla public.% y no es del conteo (no tiene: %). No se cambió nada. Usa un proyecto de Supabase aparte para el conteo.', t.tabla, faltan;
+    end if;
+  end loop;
+end;
+$$;
+
 
 create table if not exists public.distritos (
   id text primary key,
@@ -86,7 +124,7 @@ create trigger votos_mesa_tocar
 -- Un administrador lo maneja todo y crea a los personeros desde la web
 -- (Administración › Personeros); los personeros solo anotan votos. Una cuenta que no está
 -- en esta tabla, o que está sin acceso, no ve ni cambia nada aunque inicie sesión.
-create table if not exists public.usuarios (
+create table if not exists public.conteo_usuarios (
   id uuid primary key references auth.users (id) on delete cascade,
   correo text not null,
   nombre text not null default '',
@@ -96,17 +134,17 @@ create table if not exists public.usuarios (
 );
 
 -- Rol de quien hace el pedido: 'admin', 'personero' o null (sin acceso).
-create or replace function public.mi_rol() returns text
+create or replace function public.conteo_rol() returns text
 language sql stable security definer set search_path = ''
 as $$
-  select rol from public.usuarios where id = auth.uid() and activo
+  select rol from public.conteo_usuarios where id = auth.uid() and activo
 $$;
 
 -- Seguridad (RLS).
 do $$
 declare t text;
 begin
-  foreach t in array array['distritos', 'colegios', 'aulas', 'mesas', 'columnas', 'partidos', 'votos_mesa', 'usuarios'] loop
+  foreach t in array array['distritos', 'colegios', 'aulas', 'mesas', 'columnas', 'partidos', 'votos_mesa', 'conteo_usuarios'] loop
     execute format('alter table public.%I enable row level security', t);
     -- «con sesion» es de la versión anterior, en la que cualquiera con sesión podía todo.
     execute format('drop policy if exists "con sesion" on public.%I', t);
@@ -117,11 +155,11 @@ begin
   -- Colegios, mesas, partidos…: los leen todos los que tienen acceso; solo el administrador los cambia.
   foreach t in array array['distritos', 'colegios', 'aulas', 'mesas', 'columnas', 'partidos'] loop
     execute format(
-      'create policy "leer" on public.%I for select to authenticated using ((select public.mi_rol()) is not null)', t
+      'create policy "leer" on public.%I for select to authenticated using ((select public.conteo_rol()) is not null)', t
     );
     execute format(
       'create policy "escribir" on public.%I for all to authenticated ' ||
-      'using ((select public.mi_rol()) = ''admin'') with check ((select public.mi_rol()) = ''admin'')', t
+      'using ((select public.conteo_rol()) = ''admin'') with check ((select public.conteo_rol()) = ''admin'')', t
     );
   end loop;
 end;
@@ -129,46 +167,46 @@ $$;
 
 -- Votos: los anotan los personeros y el administrador.
 create policy "escribir" on public.votos_mesa for all to authenticated
-  using ((select public.mi_rol()) is not null) with check ((select public.mi_rol()) is not null);
+  using ((select public.conteo_rol()) is not null) with check ((select public.conteo_rol()) is not null);
 
 -- Usuarios: cada uno ve su propia fila; el administrador ve y cambia todas.
-create policy "leer" on public.usuarios for select to authenticated
-  using (id = (select auth.uid()) or (select public.mi_rol()) = 'admin');
-create policy "escribir" on public.usuarios for all to authenticated
-  using ((select public.mi_rol()) = 'admin') with check ((select public.mi_rol()) = 'admin');
+create policy "leer" on public.conteo_usuarios for select to authenticated
+  using (id = (select auth.uid()) or (select public.conteo_rol()) = 'admin');
+create policy "escribir" on public.conteo_usuarios for all to authenticated
+  using ((select public.conteo_rol()) = 'admin') with check ((select public.conteo_rol()) = 'admin');
 
 -- El administrador da acceso de personero a una cuenta, buscándola por su correo. La web la usa
 -- justo después de crear la cuenta; también sirve para devolverle el acceso a alguien.
-create or replace function public.dar_acceso(correo_personero text, nombre_personero text default '')
+create or replace function public.conteo_dar_acceso(correo_personero text, nombre_personero text default '')
 returns uuid
 language plpgsql security definer set search_path = ''
 as $$
 declare
   cuenta uuid;
 begin
-  if (select public.mi_rol()) is distinct from 'admin' then
+  if (select public.conteo_rol()) is distinct from 'admin' then
     raise exception 'Solo el administrador puede dar acceso.' using errcode = '42501';
   end if;
   select u.id into cuenta from auth.users u where lower(u.email) = lower(trim(correo_personero));
   if cuenta is null then
     raise exception 'No hay ninguna cuenta con el correo %.', correo_personero using errcode = 'P0002';
   end if;
-  insert into public.usuarios (id, correo, nombre, rol, activo)
+  insert into public.conteo_usuarios (id, correo, nombre, rol, activo)
   values (cuenta, lower(trim(correo_personero)), coalesce(trim(nombre_personero), ''), 'personero', true)
   on conflict (id) do update
     set activo = true,
-        nombre = case when excluded.nombre <> '' then excluded.nombre else public.usuarios.nombre end;
+        nombre = case when excluded.nombre <> '' then excluded.nombre else public.conteo_usuarios.nombre end;
   return cuenta;
 end;
 $$;
 
 -- El administrador le pone una contraseña nueva a un personero (por si la olvidó).
-create or replace function public.cambiar_clave(personero uuid, clave text)
+create or replace function public.conteo_cambiar_clave(personero uuid, clave text)
 returns void
 language plpgsql security definer set search_path = ''
 as $$
 begin
-  if (select public.mi_rol()) is distinct from 'admin' then
+  if (select public.conteo_rol()) is distinct from 'admin' then
     raise exception 'Solo el administrador puede cambiar contraseñas.' using errcode = '42501';
   end if;
   if length(coalesce(clave, '')) < 6 then
@@ -177,7 +215,7 @@ begin
   update auth.users
     set encrypted_password = extensions.crypt(clave, extensions.gen_salt('bf', 10)), updated_at = now()
     where id = personero
-      and exists (select 1 from public.usuarios x where x.id = personero and x.rol = 'personero');
+      and exists (select 1 from public.conteo_usuarios x where x.id = personero and x.rol = 'personero');
   if not found then
     raise exception 'No se encontró ese personero.' using errcode = 'P0002';
   end if;
@@ -185,7 +223,7 @@ end;
 $$;
 
 -- Deja como administrador la cuenta con ese correo. Solo se puede usar aquí, en el SQL Editor.
-create or replace function public.hacer_admin(correo_admin text)
+create or replace function public.conteo_hacer_admin(correo_admin text)
 returns text
 language plpgsql security definer set search_path = ''
 as $$
@@ -200,21 +238,21 @@ begin
       correo_admin
     );
   end if;
-  insert into public.usuarios (id, correo, nombre, rol, activo)
+  insert into public.conteo_usuarios (id, correo, nombre, rol, activo)
   values (cuenta, lower(correo_cuenta), 'Administrador', 'admin', true)
   on conflict (id) do update set rol = 'admin', activo = true;
   return format('Listo: %s es el administrador.', correo_cuenta);
 end;
 $$;
 
--- Nadie las llama sin sesión; hacer_admin tampoco se puede llamar desde la web.
-revoke execute on function public.mi_rol() from public, anon;
-revoke execute on function public.dar_acceso(text, text) from public, anon;
-revoke execute on function public.cambiar_clave(uuid, text) from public, anon;
-revoke execute on function public.hacer_admin(text) from public, anon, authenticated;
-grant execute on function public.mi_rol() to authenticated;
-grant execute on function public.dar_acceso(text, text) to authenticated;
-grant execute on function public.cambiar_clave(uuid, text) to authenticated;
+-- Nadie las llama sin sesión; conteo_hacer_admin tampoco se puede llamar desde la web.
+revoke execute on function public.conteo_rol() from public, anon;
+revoke execute on function public.conteo_dar_acceso(text, text) from public, anon;
+revoke execute on function public.conteo_cambiar_clave(uuid, text) from public, anon;
+revoke execute on function public.conteo_hacer_admin(text) from public, anon, authenticated;
+grant execute on function public.conteo_rol() to authenticated;
+grant execute on function public.conteo_dar_acceso(text, text) to authenticated;
+grant execute on function public.conteo_cambiar_clave(uuid, text) to authenticated;
 
 -- Tiempo real: las pantallas de Resumen y Resultados se actualizan solas.
 do $$
@@ -235,7 +273,7 @@ $$;
 -- 1. Crea tu cuenta en Authentication → Users → Add user → Create new user (con Auto Confirm User).
 -- 2. Abre otra consulta (New query), pega esta línea con TU correo y dale Run:
 --
---      select public.hacer_admin('tu-correo@gmail.com');
+--      select public.conteo_hacer_admin('tu-correo@gmail.com');
 --
 --    Tiene que responder «Listo: … es el administrador».
 -- Los personeros los creas después desde la web: Administración › Personeros.
