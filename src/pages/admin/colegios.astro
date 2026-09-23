@@ -1,0 +1,284 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Colegios">
+  <div class="cabecera">
+    <h1>Colegios</h1>
+    <div class="acciones">
+      <button type="button" class="btn" id="restaurar">Restaurar lista original</button>
+      <button type="button" class="btn primary" id="nuevo">+ Nuevo colegio</button>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="barra-crud">
+      <label class="campo">
+        <span class="campo-et">Distrito</span>
+        <select id="f-distrito"></select>
+      </label>
+      <label class="campo ancho">
+        <span class="campo-et">Buscar</span>
+        <input id="f-buscar" type="search" placeholder="Nombre o código de local" autocomplete="off" />
+      </label>
+      <span class="cuenta" id="cuenta"></span>
+    </div>
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Colegio</th>
+            <th>Distrito</th>
+            <th>Local ONPE</th>
+            <th class="n">Aulas</th>
+            <th class="n">Mesas</th>
+            <th class="n">Contadas</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="filas"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog class="modal" id="dlg" aria-labelledby="dlg-titulo">
+    <form id="form" novalidate>
+      <header class="modal-head">
+        <h2 id="dlg-titulo">Nuevo colegio</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <label class="campo-v">Distrito<select class="control" name="distrito"></select></label>
+        <label class="campo-v">
+          Nombre del colegio
+          <input class="control" name="nombre" autocomplete="off" placeholder="Ej.: IE 10057 José Mercedes Esteves" />
+        </label>
+        <label class="campo-v">
+          <span>Código de local ONPE <span class="opcional">(opcional)</span></span>
+          <input class="control" name="codigo" inputmode="numeric" autocomplete="off" />
+        </label>
+        <div class="grid-2" data-solo-nuevo>
+          <label class="campo-v">
+            Cantidad de aulas
+            <input class="control" name="aulas" type="number" inputmode="numeric" min="1" max="200" value="1" />
+          </label>
+          <label class="campo-v">
+            Mesas por aula
+            <input class="control" name="mesas" type="number" inputmode="numeric" min="1" max="50" value="1" />
+          </label>
+        </div>
+        <label class="campo-v" data-solo-nuevo>
+          N° de la primera mesa
+          <input class="control" name="primera" inputmode="numeric" autocomplete="off" />
+          <small>Las demás mesas siguen en orden (034611, 034612…).</small>
+        </label>
+        <p class="error" id="dlg-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <button type="button" class="btn" data-cerrar>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { numerosDeMesa } from '../../data/provincia-ferrenafe';
+  import { ICONO_EDITAR, ICONO_ELIMINAR } from '../../lib/iconos';
+  import {
+    cargar,
+    colegiosDe,
+    entero,
+    esc,
+    fmt,
+    guardar,
+    mesaContada,
+    mesas,
+    nombreColegio,
+    numeradorMesas,
+    numeroOcupado,
+    opciones,
+    ubicarColegio,
+    uid,
+  } from '../../lib/store';
+
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const CLAVE_FILTRO = 'conteo-votos:admin-distrito';
+  const d = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fDistrito = $<HTMLSelectElement>('f-distrito');
+  const fBuscar = $<HTMLInputElement>('f-buscar');
+  const filas = $('filas');
+  const dlg = $<HTMLDialogElement>('dlg');
+  const form = $<HTMLFormElement>('form');
+  const dlgError = $('dlg-error');
+  const campo = (nombre: string) => form.elements.namedItem(nombre) as HTMLInputElement;
+  const selDistrito = form.elements.namedItem('distrito') as HTMLSelectElement;
+
+  const limitar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+  const sinTildes = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  let filtroDistrito = '';
+  try {
+    filtroDistrito =
+      new URLSearchParams(location.search).get('distrito') ?? localStorage.getItem(CLAVE_FILTRO) ?? '';
+  } catch {
+    // Todos los distritos.
+  }
+  if (!d.distritos.some((x) => x.id === filtroDistrito)) filtroDistrito = '';
+  /** Colegio que se está editando (o null si es uno nuevo). */
+  let editando: string | null = null;
+
+  function pintar() {
+    opciones(
+      fDistrito,
+      [{ id: '', nombre: 'Todos' }, ...d.distritos.map((x) => ({ id: x.id, nombre: x.corto ?? x.nombre }))],
+      filtroDistrito,
+    );
+    const q = sinTildes(fBuscar.value.trim());
+    const lista = d.distritos
+      .filter((x) => !filtroDistrito || x.id === filtroDistrito)
+      .flatMap((distrito) => distrito.colegios.map((colegio) => ({ distrito, colegio })))
+      .filter(({ colegio }) => !q || sinTildes(colegio.nombre).includes(q) || (colegio.codigo ?? '').includes(q));
+
+    $('cuenta').textContent = `${fmt(lista.length)} ${lista.length === 1 ? 'colegio' : 'colegios'}`;
+    filas.innerHTML = lista.length
+      ? lista
+          .map(({ distrito, colegio }) => {
+            const ms = colegio.aulas.flatMap((a) => a.mesas);
+            const contadas = ms.filter((m) => mesaContada(d, m)).length;
+            return `
+          <tr data-c="${esc(colegio.id)}">
+            <td class="principal">${esc(nombreColegio(distrito.colegios, colegio))}</td>
+            <td data-et="Distrito">${esc(distrito.corto ?? distrito.nombre)}</td>
+            <td data-et="Local ONPE" class="mono">${esc(colegio.codigo ?? '—')}</td>
+            <td class="n" data-et="Aulas">${fmt(colegio.aulas.length)}</td>
+            <td class="n" data-et="Mesas">${fmt(ms.length)}</td>
+            <td class="n" data-et="Contadas">${fmt(contadas)}</td>
+            <td class="acciones-fila">
+              <a class="link-fila" href="${BASE}/admin/mesas?colegio=${encodeURIComponent(colegio.id)}">Mesas</a>
+              <button type="button" class="icon-btn" data-accion="editar" aria-label="Editar ${esc(colegio.nombre)}" title="Editar">${ICONO_EDITAR}</button>
+              <button type="button" class="icon-btn danger" data-accion="eliminar" aria-label="Eliminar ${esc(colegio.nombre)}" title="Eliminar">${ICONO_ELIMINAR}</button>
+            </td>
+          </tr>`;
+          })
+          .join('')
+      : `<tr class="vacia"><td colspan="7">${q ? 'Ningún colegio coincide con la búsqueda.' : 'Este distrito todavía no tiene colegios.'}</td></tr>`;
+  }
+
+  function error(texto: string) {
+    dlgError.textContent = texto;
+    dlgError.hidden = false;
+  }
+
+  const sugerirPrimera = () => {
+    campo('primera').value = numeradorMesas(d, selDistrito.value)();
+  };
+
+  function abrir(colegioId?: string) {
+    const info = colegioId ? ubicarColegio(d, colegioId) : undefined;
+    editando = info ? info.colegio.id : null;
+    form.reset();
+    dlgError.hidden = true;
+    $('dlg-titulo').textContent = info ? 'Editar colegio' : 'Nuevo colegio';
+    opciones(selDistrito, d.distritos, info?.distrito.id ?? (filtroDistrito || d.distritos[0].id));
+    // Un colegio no cambia de distrito: su cédula (y sus votos) dependen de él.
+    selDistrito.disabled = !!info;
+    form.querySelectorAll<HTMLElement>('[data-solo-nuevo]').forEach((el) => (el.hidden = !!info));
+    campo('nombre').value = info?.colegio.nombre ?? '';
+    campo('codigo').value = info?.colegio.codigo ?? '';
+    if (!info) sugerirPrimera();
+    dlg.showModal();
+    campo('nombre').focus();
+  }
+
+  selDistrito.addEventListener('change', () => {
+    if (!editando) sugerirPrimera();
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nombre = campo('nombre').value.trim();
+    const codigo = campo('codigo').value.trim() || undefined;
+    if (!nombre) return error('Escribe el nombre del colegio.');
+
+    if (editando) {
+      const info = ubicarColegio(d, editando);
+      if (info) {
+        info.colegio.nombre = nombre;
+        info.colegio.codigo = codigo;
+      }
+    } else {
+      const distrito = d.distritos.find((x) => x.id === selDistrito.value);
+      if (!distrito) return error('Elige un distrito.');
+      const nAulas = limitar(entero(campo('aulas').value), 1, 200);
+      const nMesas = limitar(entero(campo('mesas').value), 1, 50);
+      const primera = campo('primera').value.trim();
+      if (!/^\d+$/.test(primera)) return error('El N° de la primera mesa debe tener solo números.');
+      const numeros = numerosDeMesa(primera, nAulas * nMesas);
+      const repetido = numeros.find((n) => numeroOcupado(d, n));
+      if (repetido) return error(`La mesa ${repetido} ya existe. Usa otro número para la primera mesa.`);
+      let k = 0;
+      distrito.colegios.push({
+        id: uid(),
+        nombre,
+        codigo,
+        aulas: Array.from({ length: nAulas }, (_, i) => ({
+          id: uid(),
+          nombre: `Aula ${i + 1}`,
+          mesas: Array.from({ length: nMesas }, () => ({ id: uid(), numero: numeros[k++], votos: {} })),
+        })),
+      });
+    }
+    guardar(d);
+    dlg.close();
+    pintar();
+  });
+
+  filas.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
+    const id = b?.closest<HTMLElement>('[data-c]')?.dataset.c;
+    const info = id ? ubicarColegio(d, id) : undefined;
+    if (!b || !info) return;
+    if (b.dataset.accion === 'editar') return abrir(info.colegio.id);
+
+    const ms = info.colegio.aulas.flatMap((a) => a.mesas);
+    const conVotos = ms.filter((m) => mesaContada(d, m)).length;
+    const detalle = conVotos ? `, ${conVotos} de ellas con votos` : '';
+    if (!confirm(`¿Eliminar «${info.colegio.nombre}»? Se borrarán sus ${info.colegio.aulas.length} aulas y ${ms.length} mesas${detalle}.`)) return;
+    info.distrito.colegios = info.distrito.colegios.filter((c) => c !== info.colegio);
+    guardar(d);
+    pintar();
+  });
+
+  $('nuevo').addEventListener('click', () => abrir());
+  dlg.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', () => dlg.close()));
+  // Clic fuera de la ventana: cerrar.
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+
+  fDistrito.addEventListener('change', () => {
+    filtroDistrito = fDistrito.value;
+    try {
+      localStorage.setItem(CLAVE_FILTRO, filtroDistrito);
+    } catch {
+      // No importa si no se puede recordar.
+    }
+    pintar();
+  });
+  fBuscar.addEventListener('input', pintar);
+
+  $('restaurar').addEventListener('click', () => {
+    const alcance = filtroDistrito ? d.distritos.filter((x) => x.id === filtroDistrito) : d.distritos;
+    const hayVotos = alcance.some((x) => mesas(d, { distrito: x.id }).some((u) => mesaContada(d, u.mesa)));
+    const donde = filtroDistrito ? `de ${alcance[0].nombre}` : 'de toda la provincia';
+    const aviso = hayVotos ? ' Se perderán los votos ya registrados.' : '';
+    if (!confirm(`¿Volver a la lista original de colegios y mesas ${donde}?${aviso}`)) return;
+    for (const x of alcance) x.colegios = colegiosDe(x.id);
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>

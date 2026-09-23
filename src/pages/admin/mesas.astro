@@ -1,0 +1,316 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Mesas">
+  <div class="cabecera">
+    <h1>Mesas</h1>
+    <button type="button" class="btn primary" id="nuevo">+ Nueva mesa</button>
+  </div>
+
+  <section class="card">
+    <div class="barra-crud">
+      <label class="campo">
+        <span class="campo-et">Distrito</span>
+        <select id="f-distrito"></select>
+      </label>
+      <label class="campo ancho">
+        <span class="campo-et">Colegio</span>
+        <select id="f-colegio"></select>
+      </label>
+      <label class="campo">
+        <span class="campo-et">Buscar</span>
+        <input id="f-buscar" type="search" inputmode="numeric" placeholder="N° de mesa" autocomplete="off" />
+      </label>
+      <span class="cuenta" id="cuenta"></span>
+    </div>
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>N° de mesa</th>
+            <th>Colegio</th>
+            <th>Aula</th>
+            <th>Distrito</th>
+            <th class="n">Electores</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="filas"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog class="modal" id="dlg" aria-labelledby="dlg-titulo">
+    <form id="form" novalidate>
+      <header class="modal-head">
+        <h2 id="dlg-titulo">Nueva mesa</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <label class="campo-v">Distrito<select class="control" name="distrito"></select></label>
+        <label class="campo-v">Colegio<select class="control" name="colegio"></select></label>
+        <div class="grid-2">
+          <label class="campo-v">
+            Aula
+            <input class="control" name="aula" list="lista-aulas" autocomplete="off" />
+            <datalist id="lista-aulas"></datalist>
+          </label>
+          <label class="campo-v">
+            N° de mesa
+            <input class="control" name="numero" inputmode="numeric" autocomplete="off" />
+          </label>
+        </div>
+        <label class="campo-v">
+          <span>Electores hábiles <span class="opcional">(opcional)</span></span>
+          <input class="control" name="electores" type="number" inputmode="numeric" min="0" max="300" />
+        </label>
+        <p class="error" id="dlg-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <button type="button" class="btn" data-cerrar>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { ICONO_EDITAR, ICONO_ELIMINAR } from '../../lib/iconos';
+  import {
+    MAX_ELECTORES_MESA,
+    cargar,
+    entero,
+    esc,
+    fmt,
+    guardar,
+    mesaContada,
+    mesas,
+    nombreColegio,
+    numeradorMesas,
+    numeroOcupado,
+    opciones,
+    quitarAulasVacias,
+    ubicarColegio,
+    ubicarMesa,
+    uid,
+    type Colegio,
+  } from '../../lib/store';
+
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const CLAVE_FILTRO = 'conteo-votos:admin-distrito';
+  const d = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fDistrito = $<HTMLSelectElement>('f-distrito');
+  const fColegio = $<HTMLSelectElement>('f-colegio');
+  const fBuscar = $<HTMLInputElement>('f-buscar');
+  const filas = $('filas');
+  const dlg = $<HTMLDialogElement>('dlg');
+  const form = $<HTMLFormElement>('form');
+  const dlgError = $('dlg-error');
+  const campo = (nombre: string) => form.elements.namedItem(nombre) as HTMLInputElement;
+  const selDistrito = form.elements.namedItem('distrito') as HTMLSelectElement;
+  const selColegio = form.elements.namedItem('colegio') as HTMLSelectElement;
+
+  const mismoNombre = (a: string, b: string) =>
+    a.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase() ===
+    b.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+
+  // Filtros: los de la dirección (?distrito= o ?colegio=) o los últimos usados.
+  // Sin nada guardado se empieza por el primer distrito ("" = todos).
+  const params = new URLSearchParams(location.search);
+  let filtro = { distrito: d.distritos[0]?.id ?? '', colegio: '' };
+  try {
+    const guardado = localStorage.getItem(CLAVE_FILTRO);
+    if (guardado !== null) filtro.distrito = guardado;
+  } catch {
+    // Sin filtro guardado.
+  }
+  if (params.get('distrito')) filtro = { distrito: params.get('distrito')!, colegio: '' };
+  const pedido = ubicarColegio(d, params.get('colegio') ?? '');
+  if (pedido) filtro = { distrito: pedido.distrito.id, colegio: pedido.colegio.id };
+  if (filtro.distrito && !d.distritos.some((x) => x.id === filtro.distrito)) filtro.distrito = '';
+
+  /** Mesa que se está editando (o null si es una nueva). */
+  let editando: string | null = null;
+
+  function pintar() {
+    const distrito = d.distritos.find((x) => x.id === filtro.distrito);
+    if (!distrito?.colegios.some((c) => c.id === filtro.colegio)) filtro.colegio = '';
+    opciones(
+      fDistrito,
+      [{ id: '', nombre: 'Todos' }, ...d.distritos.map((x) => ({ id: x.id, nombre: x.corto ?? x.nombre }))],
+      filtro.distrito,
+    );
+    opciones(
+      fColegio,
+      [
+        { id: '', nombre: 'Todos' },
+        ...(distrito?.colegios ?? []).map((c) => ({ id: c.id, nombre: nombreColegio(distrito!.colegios, c) })),
+      ],
+      filtro.colegio,
+    );
+    fColegio.disabled = !distrito;
+
+    const q = fBuscar.value.trim();
+    const lista = mesas(d, { distrito: filtro.distrito || undefined, colegio: filtro.colegio || undefined }).filter(
+      (u) => !q || u.mesa.numero.includes(q),
+    );
+    $('cuenta').textContent = `${fmt(lista.length)} ${lista.length === 1 ? 'mesa' : 'mesas'}`;
+
+    filas.innerHTML = lista.length
+      ? lista
+          .map(({ distrito: x, colegio, aula, mesa }) => {
+            const contada = mesaContada(d, mesa);
+            return `
+          <tr data-m="${esc(mesa.id)}">
+            <td class="principal mono">${esc(mesa.numero)}</td>
+            <td data-et="Colegio">${esc(colegio.nombre)}</td>
+            <td data-et="Aula">${esc(aula.nombre)}</td>
+            <td data-et="Distrito">${esc(x.corto ?? x.nombre)}</td>
+            <td class="n" data-et="Electores">${mesa.electores ? fmt(mesa.electores) : '—'}</td>
+            <td data-et="Estado">${contada ? '<span class="chip ok">✓ Contada</span>' : '<span class="chip">Sin votos</span>'}</td>
+            <td class="acciones-fila">
+              <a class="link-fila" href="${BASE}/?mesa=${encodeURIComponent(mesa.id)}">Contar</a>
+              <button type="button" class="icon-btn" data-accion="editar" aria-label="Editar mesa ${esc(mesa.numero)}" title="Editar">${ICONO_EDITAR}</button>
+              <button type="button" class="icon-btn danger" data-accion="eliminar" aria-label="Eliminar mesa ${esc(mesa.numero)}" title="Eliminar">${ICONO_ELIMINAR}</button>
+            </td>
+          </tr>`;
+          })
+          .join('')
+      : `<tr class="vacia"><td colspan="7">${q ? 'Ninguna mesa coincide con la búsqueda.' : 'Todavía no hay mesas aquí.'}</td></tr>`;
+  }
+
+  function error(texto: string) {
+    dlgError.textContent = texto;
+    dlgError.hidden = false;
+  }
+
+  const colegioElegido = (): Colegio | undefined =>
+    d.distritos.find((x) => x.id === selDistrito.value)?.colegios.find((c) => c.id === selColegio.value);
+
+  /** Llena el colegio y las aulas del formulario según el distrito elegido. */
+  function llenarColegios(colegioId?: string) {
+    const distrito = d.distritos.find((x) => x.id === selDistrito.value);
+    opciones(
+      selColegio,
+      (distrito?.colegios ?? []).map((c) => ({ id: c.id, nombre: nombreColegio(distrito!.colegios, c) })),
+      colegioId,
+    );
+    llenarAulas();
+  }
+
+  function llenarAulas() {
+    const colegio = colegioElegido();
+    $('lista-aulas').innerHTML = (colegio?.aulas ?? []).map((a) => `<option value="${esc(a.nombre)}"></option>`).join('');
+    // Mesa nueva: por defecto va en un aula nueva (una mesa por aula).
+    if (!editando) campo('aula').value = `Aula ${(colegio?.aulas.length ?? 0) + 1}`;
+  }
+
+  function abrir(mesaId?: string) {
+    const u = mesaId ? ubicarMesa(d, mesaId) : undefined;
+    editando = u ? u.mesa.id : null;
+    form.reset();
+    dlgError.hidden = true;
+    $('dlg-titulo').textContent = u ? `Editar mesa ${u.mesa.numero}` : 'Nueva mesa';
+    opciones(selDistrito, d.distritos, u?.distrito.id ?? (filtro.distrito || d.distritos[0].id));
+    // Una mesa no cambia de distrito: su cédula (y sus votos) dependen de él.
+    selDistrito.disabled = !!u;
+    llenarColegios(u?.colegio.id ?? filtro.colegio);
+    if (u) {
+      campo('aula').value = u.aula.nombre;
+      campo('numero').value = u.mesa.numero;
+      campo('electores').value = u.mesa.electores ? String(u.mesa.electores) : '';
+    } else {
+      campo('numero').value = numeradorMesas(d, selDistrito.value)();
+    }
+    dlg.showModal();
+    (u ? campo('numero') : selColegio).focus();
+  }
+
+  selDistrito.addEventListener('change', () => {
+    llenarColegios();
+    if (!editando) campo('numero').value = numeradorMesas(d, selDistrito.value)();
+  });
+  selColegio.addEventListener('change', llenarAulas);
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const colegio = colegioElegido();
+    if (!colegio) return error('Elige un colegio.');
+    const numero = campo('numero').value.trim();
+    if (!/^\d+$/.test(numero)) return error('El N° de mesa debe tener solo números.');
+    if (numeroOcupado(d, numero, editando ?? undefined)) return error(`Ya existe la mesa ${numero}.`);
+    const texto = campo('electores').value.trim();
+    const electores = texto ? entero(texto) : undefined;
+    if (electores && electores > MAX_ELECTORES_MESA) {
+      return error(`Una mesa tiene como máximo ${MAX_ELECTORES_MESA} electores.`);
+    }
+    const nombreAula = campo('aula').value.trim() || `Aula ${colegio.aulas.length + 1}`;
+
+    // El aula se busca por nombre; si no existe, se crea.
+    let aula = colegio.aulas.find((a) => mismoNombre(a.nombre, nombreAula));
+    if (!aula) {
+      aula = { id: uid(), nombre: nombreAula, mesas: [] };
+      colegio.aulas.push(aula);
+    }
+
+    if (editando) {
+      const u = ubicarMesa(d, editando);
+      if (u) {
+        u.mesa.numero = numero;
+        if (electores) u.mesa.electores = electores;
+        else delete u.mesa.electores;
+        if (u.aula !== aula) {
+          u.aula.mesas = u.aula.mesas.filter((m) => m !== u.mesa);
+          aula.mesas.push(u.mesa);
+          quitarAulasVacias(u.colegio);
+        }
+      }
+    } else {
+      aula.mesas.push({ id: uid(), numero, ...(electores ? { electores } : {}), votos: {} });
+    }
+    guardar(d);
+    dlg.close();
+    pintar();
+  });
+
+  filas.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
+    const id = b?.closest<HTMLElement>('[data-m]')?.dataset.m;
+    const u = id ? ubicarMesa(d, id) : undefined;
+    if (!b || !u) return;
+    if (b.dataset.accion === 'editar') return abrir(u.mesa.id);
+
+    const aviso = mesaContada(d, u.mesa) ? ' Tiene votos registrados que también se borrarán.' : '';
+    if (!confirm(`¿Eliminar la mesa ${u.mesa.numero} (${u.colegio.nombre}, ${u.aula.nombre})?${aviso}`)) return;
+    u.aula.mesas = u.aula.mesas.filter((m) => m !== u.mesa);
+    quitarAulasVacias(u.colegio);
+    guardar(d);
+    pintar();
+  });
+
+  $('nuevo').addEventListener('click', () => abrir());
+  dlg.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', () => dlg.close()));
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+
+  fDistrito.addEventListener('change', () => {
+    filtro = { distrito: fDistrito.value, colegio: '' };
+    try {
+      localStorage.setItem(CLAVE_FILTRO, filtro.distrito);
+    } catch {
+      // No importa si no se puede recordar.
+    }
+    pintar();
+  });
+  fColegio.addEventListener('change', () => {
+    filtro = { ...filtro, colegio: fColegio.value };
+    pintar();
+  });
+  fBuscar.addEventListener('input', pintar);
+
+  pintar();
+</script>

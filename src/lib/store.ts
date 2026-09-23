@@ -262,6 +262,26 @@ export function mesas(d: Datos, f: Filtro = {}): Ubicada[] {
   return out;
 }
 
+/** Busca un colegio con su distrito. */
+export function ubicarColegio(d: Datos, id: string) {
+  for (const distrito of d.distritos) {
+    const colegio = distrito.colegios.find((c) => c.id === id);
+    if (colegio) return { distrito, colegio };
+  }
+  return undefined;
+}
+
+export const ubicarMesa = (d: Datos, id: string) => mesas(d).find((u) => u.mesa.id === id);
+
+/** ¿Otra mesa de la provincia ya usa ese número? */
+export const numeroOcupado = (d: Datos, numero: string, exceptoId?: string) =>
+  mesas(d).some((u) => u.mesa.numero === numero && u.mesa.id !== exceptoId);
+
+/** Quita las aulas que se quedaron sin mesas. */
+export function quitarAulasVacias(c: Colegio) {
+  c.aulas = c.aulas.filter((a) => a.mesas.length);
+}
+
 export function resumen(columna: Columna, lista: Mesa[]): Resumen {
   const suma = (p: string) => lista.reduce((t, m) => t + votosDe(m, columna.id, p), 0);
   const filas = columna.partidos.map((partido) => ({ partido, votos: suma(partido.id) }));

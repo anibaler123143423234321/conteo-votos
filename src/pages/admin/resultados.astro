@@ -1,9 +1,12 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import AdminLayout from '../../layouts/AdminLayout.astro';
 ---
 
-<Layout title="Resultados">
-  <h1 class="sr-only">Resultados</h1>
+<AdminLayout title="Resultados">
+  <div class="cabecera">
+    <h1>Resultados</h1>
+    <button type="button" class="btn" id="csv">Descargar CSV (Excel)</button>
+  </div>
 
   <section class="card barra-sel" aria-label="Filtrar resultados">
     <div class="selectores sin-nav">
@@ -33,21 +36,7 @@ import Layout from '../layouts/Layout.astro';
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
   <div class="columnas" id="resultados"></div>
 
-  <section class="card datos">
-    <p>
-      Todo se guarda en este navegador. Descarga un respaldo de vez en cuando para no perder el
-      conteo o para pasarlo a otra computadora.
-    </p>
-    <div class="acciones">
-      <button type="button" class="btn" id="csv">Descargar CSV</button>
-      <button type="button" class="btn" id="json">Descargar respaldo</button>
-      <button type="button" class="btn" id="importar">Cargar respaldo</button>
-      <input type="file" id="archivo" accept=".json,application/json" hidden />
-      <button type="button" class="btn danger" id="borrar-votos">Borrar votos</button>
-      <button type="button" class="btn danger" id="borrar-todo">Borrar todo</button>
-    </div>
-  </section>
-</Layout>
+</AdminLayout>
 
 <script>
   import {
@@ -55,25 +44,21 @@ import Layout from '../layouts/Layout.astro';
     NULO,
     cargar,
     columnasDe,
-    datosIniciales,
     descargar,
     electoresDe,
-    esDatos,
     esc,
     fmt,
-    guardar,
     mesaContada,
     mesas,
     nombreColegio,
-    normalizar,
     opciones,
     pct,
     resumen,
     votosDe,
     type Datos,
-  } from '../lib/store';
+  } from '../../lib/store';
 
-  let d: Datos = cargar();
+  const d: Datos = cargar();
   let f = { distrito: '', colegio: '', aula: '', mesa: '' };
   let tab = 0;
 
@@ -84,7 +69,6 @@ import Layout from '../layouts/Layout.astro';
   const fMesa = $<HTMLSelectElement>('f-mesa');
   const tabs = $('tabs');
   const cont = $('resultados');
-  const archivo = $<HTMLInputElement>('archivo');
 
   function pintar() {
     const distrito = d.distritos.find((x) => x.id === f.distrito);
@@ -231,41 +215,6 @@ import Layout from '../layouts/Layout.astro';
     const celda = (c: string) => (/[",\n\r]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
     const texto = filas.map((r) => r.map(celda).join(',')).join('\r\n');
     descargar(`conteo-votos-${hoy()}.csv`, '﻿' + texto, 'text/csv;charset=utf-8');
-  });
-
-  $('json').addEventListener('click', () => {
-    descargar(`conteo-votos-respaldo-${hoy()}.json`, JSON.stringify(d, null, 2), 'application/json');
-  });
-
-  $('importar').addEventListener('click', () => archivo.click());
-  archivo.addEventListener('change', async () => {
-    const file = archivo.files?.[0];
-    archivo.value = '';
-    if (!file) return;
-    try {
-      const nuevo = JSON.parse(await file.text());
-      if (!esDatos(nuevo)) throw new Error('formato');
-      if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
-      d = normalizar(nuevo);
-      guardar(d);
-      pintar();
-    } catch {
-      alert('El archivo no es un respaldo válido del conteo de votos.');
-    }
-  });
-
-  $('borrar-votos').addEventListener('click', () => {
-    if (!confirm('¿Borrar los votos de todas las mesas? Los colegios, aulas, mesas y partidos se mantienen.')) return;
-    for (const { mesa } of mesas(d)) mesa.votos = {};
-    guardar(d);
-    pintar();
-  });
-
-  $('borrar-todo').addEventListener('click', () => {
-    if (!confirm('¿Borrar TODO y volver al inicio (colegios de la ONPE y partidos originales)? Se pierden todos los votos.')) return;
-    d = datosIniciales();
-    guardar(d);
-    pintar();
   });
 
   pintar();

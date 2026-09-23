@@ -1,5 +1,6 @@
 ---
-import '../styles/global.css';
+import Base from './Base.astro';
+import TemaBoton from '../components/TemaBoton.astro';
 
 interface Props {
   title: string;
@@ -7,92 +8,20 @@ interface Props {
 
 const { title } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const actual = Astro.url.pathname.slice(base.length).replace(/\/$/, '') || '/';
-
-const enlaces = [
-  { href: '/', texto: 'Conteo' },
-  { href: '/resultados', texto: 'Resultados' },
-  { href: '/colegios', texto: 'Colegios' },
-  { href: '/partidos', texto: 'Partidos' },
-];
 ---
 
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#121620" media="(prefers-color-scheme: dark)" />
-    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
-    <title>{title} · Conteo de votos</title>
-    <script is:inline>
-      // Aplica el tema elegido antes de pintar, para que no parpadee.
-      try {
-        const tema = localStorage.getItem('conteo-votos:tema');
-        if (tema === 'light' || tema === 'dark') document.documentElement.dataset.theme = tema;
-      } catch {}
-    </script>
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="topbar-inner">
-        <a class="brand" href={`${base}/`} aria-label="Conteo de votos">
-          <img src={`${base}/favicon.svg`} alt="" width="24" height="24" />
-          <span>Conteo de votos</span>
-        </a>
-        <nav class="nav" aria-label="Principal">
-          {
-            enlaces.map((e) => (
-              <a href={`${base}${e.href}`} aria-current={actual === e.href ? 'page' : undefined}>
-                {e.texto}
-              </a>
-            ))
-          }
-        </nav>
-        <button type="button" class="tema" id="tema" aria-label="Cambiar a modo oscuro" title="Modo claro / oscuro">
-          <svg class="luna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
-          </svg>
-          <svg class="sol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
-          </svg>
-        </button>
-      </div>
-    </header>
-    <main class="container">
-      <slot />
-    </main>
-  </body>
-</html>
-
-<script>
-  const raiz = document.documentElement;
-  const boton = document.getElementById('tema')!;
-  const sistemaOscuro = window.matchMedia('(prefers-color-scheme: dark)');
-
-  const esOscuro = () =>
-    raiz.dataset.theme ? raiz.dataset.theme === 'dark' : sistemaOscuro.matches;
-
-  function actualizar() {
-    const oscuro = esOscuro();
-    boton.setAttribute('aria-label', oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro');
-    const color = getComputedStyle(raiz).getPropertyValue('--surface').trim();
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
-  }
-
-  boton.addEventListener('click', () => {
-    const tema = esOscuro() ? 'light' : 'dark';
-    raiz.dataset.theme = tema;
-    try {
-      localStorage.setItem('conteo-votos:tema', tema);
-    } catch {
-      // Si no se puede guardar, el tema dura hasta recargar.
-    }
-    actualizar();
-  });
-
-  sistemaOscuro.addEventListener('change', actualizar);
-  actualizar();
-</script>
+<Base title={title}>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href={`${base}/`}>
+        <img src={`${base}/favicon.svg`} alt="" width="24" height="24" />
+        <span>Conteo de votos</span>
+      </a>
+      <span class="brand-sub">Provincia de Ferreñafe · Elecciones Regionales y Municipales 2026</span>
+      <TemaBoton />
+    </div>
+  </header>
+  <main class="container">
+    <slot />
+  </main>
+</Base>

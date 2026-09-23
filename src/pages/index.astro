@@ -44,11 +44,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <section class="card empty" id="vacio" hidden>
     <p id="vacio-texto"></p>
-    <a class="btn primary" href={`${base}/colegios`}>Ir a Colegios y mesas</a>
+    <a class="btn primary" href={`${base}/admin/colegios`}>Ir a Administración › Colegios</a>
   </section>
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
-  <div class="columnas" id="columnas" data-partidos={`${base}/partidos`}></div>
+  <div class="columnas" id="columnas" data-partidos={`${base}/admin/partidos`}></div>
 </Layout>
 
 <script>
@@ -69,6 +69,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     ponerVotos,
     resumen,
     votosDe,
+    ubicarMesa,
     type Columna,
     type Mesa,
   } from '../lib/store';
@@ -98,6 +99,13 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     Object.assign(sel, JSON.parse(localStorage.getItem(CLAVE_SEL) ?? '{}'));
   } catch {
     // Sin selección previa.
+  }
+
+  // Desde Administración › Mesas se puede abrir una mesa directo: /?mesa=<id>
+  const pedida = ubicarMesa(d, new URLSearchParams(location.search).get('mesa') ?? '');
+  if (pedida) {
+    sel = { di: pedida.distrito.id, c: pedida.colegio.id, a: pedida.aula.id, m: pedida.mesa.id };
+    history.replaceState(null, '', location.pathname);
   }
 
   /** Resuelve la selección actual (o la primera disponible). */
@@ -192,7 +200,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const sinPartidos = (col: Columna) => `
     <li class="fila-vacia">
       Todavía no hay partidos en «${esc(col.titulo)}».
-      <a href="${esc(columnas.dataset.partidos)}">Agrégalos en Partidos</a>.
+      <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}">Agrégalos en Administración › Partidos</a>.
     </li>`;
 
   /** Totales por columna, avisos y barra de estado de la mesa actual. */

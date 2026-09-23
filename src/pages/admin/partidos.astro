@@ -1,0 +1,304 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Partidos">
+  <div class="cabecera">
+    <h1>Partidos políticos</h1>
+    <div class="acciones">
+      <button type="button" class="btn" id="restaurar">Restaurar lista original</button>
+      <button type="button" class="btn primary" id="nuevo">+ Nuevo partido</button>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="barra-crud">
+      <label class="campo ancho">
+        <span class="campo-et">Columna</span>
+        <select id="f-columna"></select>
+      </label>
+      <button type="button" class="btn" id="editar-columna">Editar columna</button>
+      <span class="cuenta" id="cuenta"></span>
+    </div>
+    <p class="nota" id="nota-columna"></p>
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th class="n">N°</th>
+            <th>Partido</th>
+            <th class="n">Votos</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="filas"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog class="modal" id="dlg" aria-labelledby="dlg-titulo">
+    <form id="form" novalidate>
+      <header class="modal-head">
+        <h2 id="dlg-titulo">Nuevo partido</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <label class="campo-v">Columna de la cédula<select class="control" name="columna"></select></label>
+        <label class="campo-v">
+          Nombre del partido
+          <input class="control" name="nombre" autocomplete="off" placeholder="Ej.: PARTIDO DEMOCRÁTICO SOMOS PERÚ" />
+        </label>
+        <label class="campo-v">
+          N° en la cédula
+          <input class="control" name="posicion" type="number" inputmode="numeric" min="1" />
+          <small>Su lugar en la columna, de arriba hacia abajo.</small>
+        </label>
+        <p class="error" id="dlg-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <button type="button" class="btn" data-cerrar>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="dlg-col" aria-labelledby="dlg-col-titulo">
+    <form id="form-col" novalidate>
+      <header class="modal-head">
+        <h2 id="dlg-col-titulo">Editar columna</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <label class="campo-v">Título<input class="control" name="titulo" autocomplete="off" /></label>
+        <label class="campo-v">
+          Nombre corto
+          <input class="control" name="corto" autocomplete="off" maxlength="16" />
+          <small>Se usa en las pestañas del celular (ej.: Gobernador).</small>
+        </label>
+        <p class="error" id="dlg-col-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <button type="button" class="btn" data-cerrar>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </footer>
+    </form>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { ICONO_BAJAR, ICONO_EDITAR, ICONO_ELIMINAR, ICONO_SUBIR } from '../../lib/iconos';
+  import {
+    cargar,
+    columnasPorDefecto,
+    entero,
+    esc,
+    fmt,
+    guardar,
+    limpiarVotos,
+    mesas,
+    uid,
+    votosDe,
+    type Columna,
+  } from '../../lib/store';
+
+  const CLAVE_COLUMNA = 'conteo-votos:admin-columna';
+  const d = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fColumna = $<HTMLSelectElement>('f-columna');
+  const filas = $('filas');
+  const dlg = $<HTMLDialogElement>('dlg');
+  const form = $<HTMLFormElement>('form');
+  const dlgCol = $<HTMLDialogElement>('dlg-col');
+  const formCol = $<HTMLFormElement>('form-col');
+  const campo = (f: HTMLFormElement, nombre: string) => f.elements.namedItem(nombre) as HTMLInputElement;
+  const selColumna = form.elements.namedItem('columna') as HTMLSelectElement;
+
+  let columnaId = '';
+  try {
+    columnaId = new URLSearchParams(location.search).get('columna') ?? localStorage.getItem(CLAVE_COLUMNA) ?? '';
+  } catch {
+    // Primera columna.
+  }
+  /** Partido que se está editando (o null si es uno nuevo). */
+  let editando: string | null = null;
+
+  const columna = () => d.columnas.find((c) => c.id === columnaId) ?? d.columnas[0];
+  const distritoDe = (c: Columna) => d.distritos.find((x) => x.id === c.distrito);
+  const votosPartido = (c: Columna, p: string) => mesas(d).reduce((t, u) => t + votosDe(u.mesa, c.id, p), 0);
+
+  /** Opciones agrupadas: las columnas de toda la provincia y las de alcalde distrital. */
+  function opcionesColumnas(sel: HTMLSelectElement, valor: string) {
+    const grupo = (etiqueta: string, cols: Columna[]) =>
+      `<optgroup label="${esc(etiqueta)}">${cols.map((c) => `<option value="${esc(c.id)}">${esc(c.titulo)}</option>`).join('')}</optgroup>`;
+    sel.innerHTML =
+      grupo('Toda la provincia', d.columnas.filter((c) => !c.distrito)) +
+      grupo('Alcalde distrital', d.columnas.filter((c) => c.distrito));
+    sel.value = valor;
+  }
+
+  function pintar() {
+    const col = columna();
+    columnaId = col.id;
+    opcionesColumnas(fColumna, col.id);
+    const distrito = distritoDe(col);
+    $('nota-columna').textContent = distrito
+      ? `Solo va en la cédula del distrito de ${distrito.nombre}.`
+      : 'Va en la cédula de los 6 distritos de la provincia.';
+    $('cuenta').textContent = `${fmt(col.partidos.length)} ${col.partidos.length === 1 ? 'partido' : 'partidos'}`;
+
+    filas.innerHTML = col.partidos.length
+      ? col.partidos
+          .map(
+            (p, i) => `
+        <tr data-p="${esc(p.id)}">
+          <td class="n mono">${i + 1}</td>
+          <td class="principal">${esc(p.nombre)}</td>
+          <td class="n" data-et="Votos">${fmt(votosPartido(col, p.id))}</td>
+          <td class="acciones-fila">
+            <button type="button" class="icon-btn" data-accion="subir" aria-label="Subir" title="Subir" ${i === 0 ? 'disabled' : ''}>${ICONO_SUBIR}</button>
+            <button type="button" class="icon-btn" data-accion="bajar" aria-label="Bajar" title="Bajar" ${i === col.partidos.length - 1 ? 'disabled' : ''}>${ICONO_BAJAR}</button>
+            <button type="button" class="icon-btn" data-accion="editar" aria-label="Editar ${esc(p.nombre)}" title="Editar">${ICONO_EDITAR}</button>
+            <button type="button" class="icon-btn danger" data-accion="eliminar" aria-label="Eliminar ${esc(p.nombre)}" title="Eliminar">${ICONO_ELIMINAR}</button>
+          </td>
+        </tr>`,
+          )
+          .join('')
+      : '<tr class="vacia"><td colspan="4">Todavía no hay partidos en esta columna. Usa «+ Nuevo partido» y agrégalos en el orden de la cédula.</td></tr>';
+  }
+
+  function error(id: string, texto: string) {
+    const el = $(id);
+    el.textContent = texto;
+    el.hidden = false;
+  }
+
+  function abrir(partidoId?: string) {
+    const col = columna();
+    const i = partidoId ? col.partidos.findIndex((p) => p.id === partidoId) : -1;
+    editando = i >= 0 ? col.partidos[i].id : null;
+    form.reset();
+    $('dlg-error').hidden = true;
+    $('dlg-titulo').textContent = editando ? 'Editar partido' : 'Nuevo partido';
+    opcionesColumnas(selColumna, col.id);
+    selColumna.disabled = !!editando;
+    campo(form, 'nombre').value = editando ? col.partidos[i].nombre : '';
+    campo(form, 'posicion').value = String(editando ? i + 1 : col.partidos.length + 1);
+    dlg.showModal();
+    campo(form, 'nombre').focus();
+  }
+
+  selColumna.addEventListener('change', () => {
+    const col = d.columnas.find((c) => c.id === selColumna.value);
+    if (col && !editando) campo(form, 'posicion').value = String(col.partidos.length + 1);
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const col = d.columnas.find((c) => c.id === selColumna.value);
+    const nombre = campo(form, 'nombre').value.trim();
+    if (!col) return error('dlg-error', 'Elige una columna.');
+    if (!nombre) return error('dlg-error', 'Escribe el nombre del partido.');
+    const repetido = col.partidos.find((p) => p.nombre.toLowerCase() === nombre.toLowerCase() && p.id !== editando);
+    if (repetido) return error('dlg-error', 'Ese partido ya está en esta columna.');
+
+    let partido = col.partidos.find((p) => p.id === editando);
+    if (partido) {
+      partido.nombre = nombre;
+      col.partidos.splice(col.partidos.indexOf(partido), 1);
+    } else {
+      partido = { id: uid(), nombre };
+    }
+    const posicion = Math.min(Math.max(entero(campo(form, 'posicion').value) || col.partidos.length + 1, 1), col.partidos.length + 1);
+    col.partidos.splice(posicion - 1, 0, partido);
+    columnaId = col.id;
+    guardar(d);
+    dlg.close();
+    pintar();
+  });
+
+  filas.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion]');
+    const col = columna();
+    const i = col.partidos.findIndex((p) => p.id === b?.closest<HTMLElement>('[data-p]')?.dataset.p);
+    if (!b || i < 0) return;
+    const p = col.partidos[i];
+
+    switch (b.dataset.accion) {
+      case 'editar':
+        return abrir(p.id);
+      case 'subir':
+      case 'bajar': {
+        const j = b.dataset.accion === 'subir' ? i - 1 : i + 1;
+        if (j < 0 || j >= col.partidos.length) return;
+        [col.partidos[i], col.partidos[j]] = [col.partidos[j], col.partidos[i]];
+        break;
+      }
+      case 'eliminar': {
+        const votos = votosPartido(col, p.id);
+        const aviso = votos ? ` Tiene ${fmt(votos)} votos registrados que también se borrarán.` : '';
+        if (!confirm(`¿Eliminar «${p.nombre}» de esta columna?${aviso}`)) return;
+        col.partidos.splice(i, 1);
+        limpiarVotos(d);
+        break;
+      }
+    }
+    guardar(d);
+    pintar();
+  });
+
+  $('editar-columna').addEventListener('click', () => {
+    const col = columna();
+    formCol.reset();
+    $('dlg-col-error').hidden = true;
+    campo(formCol, 'titulo').value = col.titulo;
+    campo(formCol, 'corto').value = col.corto;
+    dlgCol.showModal();
+    campo(formCol, 'titulo').focus();
+  });
+
+  formCol.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const titulo = campo(formCol, 'titulo').value.trim();
+    const corto = campo(formCol, 'corto').value.trim();
+    if (!titulo || !corto) return error('dlg-col-error', 'Escribe el título y el nombre corto.');
+    const col = columna();
+    col.titulo = titulo;
+    col.corto = corto;
+    guardar(d);
+    dlgCol.close();
+    pintar();
+  });
+
+  for (const x of [dlg, dlgCol]) {
+    x.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', () => x.close()));
+    x.addEventListener('click', (e) => {
+      if (e.target === x) x.close();
+    });
+  }
+
+  $('nuevo').addEventListener('click', () => abrir());
+  fColumna.addEventListener('change', () => {
+    columnaId = fColumna.value;
+    try {
+      localStorage.setItem(CLAVE_COLUMNA, columnaId);
+    } catch {
+      // No importa si no se puede recordar.
+    }
+    pintar();
+  });
+
+  $('restaurar').addEventListener('click', () => {
+    if (
+      !confirm(
+        '¿Restaurar las listas originales de partidos? Se perderán los partidos agregados (también los de alcalde distrital) y sus votos.',
+      )
+    )
+      return;
+    d.columnas = columnasPorDefecto();
+    limpiarVotos(d);
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>

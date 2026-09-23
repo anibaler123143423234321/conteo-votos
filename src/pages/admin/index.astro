@@ -1,0 +1,150 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Resumen">
+  <div class="cabecera">
+    <h1>Resumen</h1>
+    <span class="muted">Provincia de Ferreñafe · Elecciones Regionales y Municipales 2026</span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="card">
+    <h2 class="card-titulo">Avance por distrito</h2>
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Distrito</th>
+            <th class="n">Colegios</th>
+            <th class="n">Mesas</th>
+            <th class="n">Contadas</th>
+            <th>Avance</th>
+            <th>N° de mesa</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="avance"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card datos">
+    <p>
+      Todo se guarda en este navegador. Descarga un respaldo de vez en cuando para no perder el
+      conteo o para pasarlo a otra computadora.
+    </p>
+    <div class="acciones">
+      <button type="button" class="btn" id="json">Descargar respaldo</button>
+      <button type="button" class="btn" id="importar">Cargar respaldo</button>
+      <input type="file" id="archivo" accept=".json,application/json" hidden />
+      <button type="button" class="btn danger" id="borrar-votos">Borrar votos</button>
+      <button type="button" class="btn danger" id="borrar-todo">Borrar todo</button>
+    </div>
+  </section>
+</AdminLayout>
+
+<script>
+  import {
+    cargar,
+    datosIniciales,
+    descargar,
+    esDatos,
+    esc,
+    fmt,
+    guardar,
+    mesaContada,
+    mesas,
+    normalizar,
+    pct,
+    type Datos,
+  } from '../../lib/store';
+
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  let d: Datos = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+  const archivo = $<HTMLInputElement>('archivo');
+
+  const porcentaje = (n: number, total: number) => (total ? (n / total) * 100 : 0);
+
+  function pintar() {
+    const todas = mesas(d);
+    const contadas = todas.filter((u) => mesaContada(d, u.mesa)).length;
+    const colegios = d.distritos.reduce((t, x) => t + x.colegios.length, 0);
+    const partidos = d.columnas.reduce((t, c) => t + c.partidos.length, 0);
+    const p = porcentaje(contadas, todas.length);
+
+    $('kpis').innerHTML = `
+      <section class="card kpi">
+        <div class="et">Mesas contadas</div>
+        <div class="valor">${fmt(contadas)} <small>de ${fmt(todas.length)} · ${pct(contadas, todas.length)}</small></div>
+        <div class="progreso-barra${contadas && contadas === todas.length ? ' ok' : ''}" style="--p:${p.toFixed(1)}%"><span></span></div>
+      </section>
+      <section class="card kpi"><div class="et">Distritos</div><div class="valor">${fmt(d.distritos.length)}</div></section>
+      <section class="card kpi"><div class="et">Colegios</div><div class="valor">${fmt(colegios)}</div></section>
+      <section class="card kpi"><div class="et">Partidos</div><div class="valor">${fmt(partidos)} <small>en ${d.columnas.length} columnas</small></div></section>`;
+
+    $('avance').innerHTML = d.distritos
+      .map((x) => {
+        const lista = mesas(d, { distrito: x.id });
+        const n = lista.filter((u) => mesaContada(d, u.mesa)).length;
+        const px = porcentaje(n, lista.length);
+        return `
+        <tr>
+          <td class="principal">${esc(x.nombre)}</td>
+          <td class="n" data-et="Colegios">${fmt(x.colegios.length)}</td>
+          <td class="n" data-et="Mesas">${fmt(lista.length)}</td>
+          <td class="n" data-et="Contadas">${fmt(n)}</td>
+          <td data-et="Avance">
+            <div class="celda-avance">
+              <div class="progreso-barra${n && n === lista.length ? ' ok' : ''}" style="--p:${px.toFixed(1)}%"><span></span></div>
+              <span class="n">${pct(n, lista.length)}</span>
+            </div>
+          </td>
+          <td data-et="N° de mesa">${x.confirmado ? '<span class="chip ok">Del 4 de octubre</span>' : '<span class="chip warn">Por confirmar</span>'}</td>
+          <td class="acciones-fila"><a class="link-fila" href="${BASE}/admin/mesas?distrito=${encodeURIComponent(x.id)}">Ver mesas</a></td>
+        </tr>`;
+      })
+      .join('');
+  }
+
+  const hoy = () => new Date().toISOString().slice(0, 10);
+
+  $('json').addEventListener('click', () => {
+    descargar(`conteo-votos-respaldo-${hoy()}.json`, JSON.stringify(d, null, 2), 'application/json');
+  });
+
+  $('importar').addEventListener('click', () => archivo.click());
+  archivo.addEventListener('change', async () => {
+    const file = archivo.files?.[0];
+    archivo.value = '';
+    if (!file) return;
+    try {
+      const nuevo = JSON.parse(await file.text());
+      if (!esDatos(nuevo)) throw new Error('formato');
+      if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
+      d = normalizar(nuevo);
+      guardar(d);
+      pintar();
+    } catch {
+      alert('El archivo no es un respaldo válido del conteo de votos.');
+    }
+  });
+
+  $('borrar-votos').addEventListener('click', () => {
+    if (!confirm('¿Borrar los votos de todas las mesas? Los colegios, aulas, mesas y partidos se mantienen.')) return;
+    for (const { mesa } of mesas(d)) mesa.votos = {};
+    guardar(d);
+    pintar();
+  });
+
+  $('borrar-todo').addEventListener('click', () => {
+    if (!confirm('¿Borrar TODO y volver al inicio (colegios de la ONPE y partidos originales)? Se pierden todos los votos.')) return;
+    d = datosIniciales();
+    guardar(d);
+    pintar();
+  });
+
+  pintar();
+</script>
