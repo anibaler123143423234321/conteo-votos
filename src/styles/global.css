@@ -204,6 +204,45 @@ select {
   white-space: nowrap;
 }
 
+/* Botones de la derecha del encabezado del conteo. */
+.topbar-acciones {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-acciones .tema {
+  margin-left: 0;
+}
+
+.ir-admin {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.ir-admin svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* En celular, solo el ícono. */
+@media (max-width: 520px) {
+  .ir-admin span {
+    display: none;
+  }
+
+  .ir-admin {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
 .tema {
   flex-shrink: 0;
   margin-left: auto;

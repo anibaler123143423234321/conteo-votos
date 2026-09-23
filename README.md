@@ -14,7 +14,9 @@ de cada partido (con − / + o escribiendo el número), más votos en blanco y n
 solo. Avisa si los totales de las columnas no coinciden o si hay más de 300 votos. Con
 teclado, <kbd>Enter</kbd> pasa al siguiente partido. En computadora todas las columnas (3 o 4)
 entran en una sola pantalla; en celular se cambia de columna con las pestañas. El enlace
-**Total del distrito** abre la suma de todas las mesas del distrito elegido.
+**Total del distrito** abre la suma de todas las mesas del distrito elegido. Arriba, el botón
+**Administración** lleva al panel. Con Supabase, ese botón, el enlace al total y los avisos
+que mandan a Administración solo los ve el administrador; el personero ve solo el conteo.
 
 ### Administración — `/admin`
 

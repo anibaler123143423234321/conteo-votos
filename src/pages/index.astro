@@ -202,12 +202,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </li>`;
   }
 
-  const sinPartidos = (col: Columna) => `
+  const sinPartidos = (col: Columna) => {
+    // «Distrito de Pitipo» → «distrito de Pitipo» (el nombre sigue con mayúscula).
+    const titulo = col.titulo.charAt(0).toLowerCase() + col.titulo.slice(1);
+    const cual = col.distrito ? `para alcalde del ${esc(titulo)}` : `de «${esc(col.titulo)}»`;
+    // El administrador ve por qué faltan y dónde agregarlos; el personero, solo a quién avisar.
+    return `
     <li class="fila-vacia">
-      ${col.distrito ? `Faltan los partidos para alcalde del ${esc(col.titulo.toLowerCase())}: no venían en las listas cargadas.` : `Todavía no hay partidos en «${esc(col.titulo)}».`}
-      <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}" data-solo-admin>Agrégalos en Administración › Partidos.</a>
-      <span data-solo-personero>Avísale al administrador para que los agregue.</span>
+      <span data-solo-admin>
+        ${col.distrito ? `Faltan los partidos ${cual}: no venían en las listas cargadas.` : `Todavía no hay partidos ${cual}.`}
+        <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}">Agrégalos en Administración › Partidos.</a>
+      </span>
+      <span data-solo-personero>Todavía no están los partidos ${cual}. Avísale al administrador.</span>
     </li>`;
+  };
 
   /** Totales por columna, avisos y barra de estado de la mesa actual. */
   function pintarEstado(ok = true) {

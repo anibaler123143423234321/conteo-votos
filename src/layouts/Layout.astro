@@ -18,8 +18,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <span>Conteo de votos</span>
       </a>
       <span class="brand-sub">Provincia de Ferreñafe · Elecciones Regionales y Municipales 2026</span>
-      <TemaBoton />
-      <button type="button" class="btn chico" data-salir hidden>Salir</button>
+      <div class="topbar-acciones">
+        <!-- Solo el administrador (sin Supabase, siempre: no hay roles). -->
+        <a class="btn chico ir-admin" href={`${base}/admin`} title="Ir a Administración" data-solo-admin>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="9" rx="1.5"></rect>
+            <rect x="14" y="3" width="7" height="5" rx="1.5"></rect>
+            <rect x="14" y="12" width="7" height="9" rx="1.5"></rect>
+            <rect x="3" y="16" width="7" height="5" rx="1.5"></rect>
+          </svg>
+          <span>Administración</span>
+        </a>
+        <TemaBoton />
+        <button type="button" class="btn chico" data-salir hidden>Salir</button>
+      </div>
     </div>
   </header>
   <main class="container">
