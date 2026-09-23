@@ -3,14 +3,17 @@ import '../styles/global.css';
 
 interface Props {
   title: string;
+  /** Conteo (personeros y administrador) o administración (solo el administrador). */
+  zona?: 'conteo' | 'admin';
 }
 
-const { title } = Astro.props;
+const { title, zona = 'conteo' } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_ANON_KEY);
 ---
 
 <!doctype html>
-<html lang="es">
+<html lang="es" data-con-nube={nube ? '' : undefined}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -24,7 +27,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       } catch {}
     </script>
   </head>
-  <body>
+  <body data-zona={zona}>
     <slot />
 
     <!-- Solo con Supabase: sin sesión no se puede ver ni cambiar nada. -->
@@ -45,11 +48,40 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <button type="submit" class="btn primary">Entrar</button>
       </form>
     </div>
+
+    <!-- La cuenta entró, pero el administrador no le dio acceso (o se lo quitó). -->
+    <div class="acceso" id="sin-acceso" hidden>
+      <div class="card acceso-card">
+        <img src={`${base}/favicon.svg`} alt="" width="40" height="40" />
+        <h1>Tu cuenta no tiene acceso</h1>
+        <p class="muted">
+          Entraste como <strong data-correo></strong>, pero esta cuenta no puede ver ni anotar votos.
+          Pide al administrador que te dé acceso en Administración › Personeros.
+        </p>
+        <p class="muted chico">
+          Si eres el administrador: falta el último paso de <code>esquema.sql</code>, la línea con
+          <code>hacer_admin</code> y tu correo.
+        </p>
+        <button type="button" class="btn primary" data-reintentar>Volver a intentar</button>
+        <button type="button" class="btn" data-salir>Salir</button>
+      </div>
+    </div>
+
+    <!-- Un personero abrió una página de Administración. -->
+    <div class="acceso" id="solo-admin" hidden>
+      <div class="card acceso-card">
+        <img src={`${base}/favicon.svg`} alt="" width="40" height="40" />
+        <h1>Solo para el administrador</h1>
+        <p class="muted">Con tu cuenta de personero puedes anotar los votos de las mesas.</p>
+        <a class="btn primary" href={`${base}/`}>Ir al conteo</a>
+        <button type="button" class="btn" data-salir>Salir</button>
+      </div>
+    </div>
   </body>
 </html>
 
 <script>
-  import { alEstado, cerrarSesion, iniciarSesion, nubeActiva, usuario, type EstadoNube } from '../lib/nube';
+  import { alEstado, alRol, cerrarSesion, iniciarSesion, nubeActiva, usuario, type EstadoNube } from '../lib/nube';
 
   // ---------- Modo claro / oscuro ----------
   const CLAVE_MODO = 'conteo-votos:modo';
@@ -88,6 +120,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     guardando: ['☁ Guardando…', ''],
     pendiente: ['⚠ Sin conexión: se guardará al volver', 'warn'],
     vacia: ['☁ Base de datos vacía', 'warn'],
+    'sin-acceso': ['', ''],
+    'sin-esquema': ['⚠ Falta preparar Supabase (esquema.sql)', 'error'],
     error: ['⚠ No se pudo guardar en la nube', 'error'],
   };
 
@@ -102,9 +136,24 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       campo('correo').focus();
     };
 
+    const sinAcceso = document.getElementById('sin-acceso')!;
+    const soloAdmin = document.getElementById('solo-admin')!;
+
+    alRol((rol) => {
+      // Con esto, el CSS muestra u oculta lo que es solo del administrador.
+      document.body.dataset.rol = rol ?? (rol === null ? 'ninguno' : '');
+      soloAdmin.hidden = !(document.body.dataset.zona === 'admin' && rol === 'personero');
+    });
+
     alEstado((estado, detalle) => {
       // Sin sesión o la sesión venció: hay que (volver a) entrar. Lo anotado queda en el navegador.
       if (estado === 'sin-sesion') pedirAcceso();
+      if (estado === 'sin-acceso') {
+        sinAcceso.hidden = false;
+        usuario()
+          .then((correo) => sinAcceso.querySelectorAll('[data-correo]').forEach((el) => (el.textContent = correo ?? '')))
+          .catch(() => {});
+      }
       const [texto, clase] = textos[estado];
       document.querySelectorAll<HTMLElement>('[data-nube]').forEach((el) => {
         el.hidden = !texto;
@@ -130,6 +179,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       .catch(() => {
         // Sin conexión: se usa la sesión guardada; la página avisa en su estado.
       });
+
+    sinAcceso.querySelector('[data-reintentar]')!.addEventListener('click', () => location.reload());
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

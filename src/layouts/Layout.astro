@@ -10,7 +10,7 @@ const { title } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-<Base title={title}>
+<Base title={title} zona="conteo">
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href={`${base}/`}>

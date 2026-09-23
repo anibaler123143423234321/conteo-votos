@@ -6,12 +6,15 @@
 // personas que cuentan mesas distintas no se pisan, y lo hecho sin conexión se sube al volver.
 // Un solo "trabajador" sube y trae, una cosa a la vez: nunca se traen datos encima de
 // cambios que todavía no se subieron.
+//
+// Roles (tabla usuarios de esquema.sql): el administrador cambia todo; los personeros solo
+// anotan votos. Una cuenta sin rol no ve nada (lo impide Supabase, no solo la web).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardarCopia, VERSION_DATOS } from './copia';
 import type { Aula, Colegio, Columna, Datos, Distrito, Mesa, Votos } from './store';
 
-const URL_NUBE = import.meta.env.PUBLIC_SUPABASE_URL as string | undefined;
-const CLAVE_NUBE = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string | undefined;
+export const URL_NUBE = import.meta.env.PUBLIC_SUPABASE_URL as string | undefined;
+export const CLAVE_NUBE = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string | undefined;
 
 /** ¿Esta publicación de la web se conecta con Supabase? */
 export const nubeActiva = Boolean(URL_NUBE && CLAVE_NUBE);
@@ -19,7 +22,7 @@ export const nubeActiva = Boolean(URL_NUBE && CLAVE_NUBE);
 let clientePromesa: Promise<SupabaseClient> | null = null;
 
 /** Con mala señal un pedido puede quedar colgado: a los 45 s se da por fallido y se reintenta. */
-function fetchConLimite(url: RequestInfo | URL, opciones: RequestInit = {}) {
+export function fetchConLimite(url: RequestInfo | URL, opciones: RequestInit = {}) {
   if (typeof AbortSignal.timeout !== 'function') return fetch(url, opciones);
   const limite = AbortSignal.timeout(45000);
   let signal: AbortSignal = limite;
@@ -45,6 +48,8 @@ export type EstadoNube =
   | 'guardando'
   | 'pendiente'
   | 'vacia'
+  | 'sin-acceso'
+  | 'sin-esquema'
   | 'error';
 
 let estado: EstadoNube = nubeActiva ? 'conectando' : 'local';
@@ -93,6 +98,66 @@ export async function iniciarSesion(correo: string, clave: string): Promise<stri
 
 export async function cerrarSesion() {
   await (await cliente()).auth.signOut();
+  try {
+    localStorage.removeItem(CLAVE_ROL);
+  } catch {
+    // Nada que borrar.
+  }
+}
+
+// ================= Rol =================
+
+export type Rol = 'admin' | 'personero';
+
+const CLAVE_ROL = 'conteo-votos:rol';
+/** Rol de quien entró: undefined mientras no se sabe; null si su cuenta no tiene acceso. */
+let rolActual: Rol | null | undefined;
+/** No se pudo preguntar el rol (sin señal): se pregunta al volver la conexión. */
+let rolPorAveriguar = false;
+const oyentesRol = new Set<(rol: Rol | null | undefined) => void>();
+
+export function alRol(fn: (rol: Rol | null | undefined) => void) {
+  oyentesRol.add(fn);
+  fn(rolActual);
+}
+
+function ponerRol(rol: Rol | null | undefined) {
+  rolActual = rol;
+  for (const fn of oyentesRol) fn(rol);
+}
+
+/** Lo último que se supo del rol en este navegador (sirve sin señal). */
+function rolGuardado(id?: string): Rol | null | undefined {
+  try {
+    const g = JSON.parse(localStorage.getItem(CLAVE_ROL) ?? 'null');
+    if (g && (!id || g.id === id)) return g.rol ?? null;
+  } catch {
+    // Nada guardado.
+  }
+  return undefined;
+}
+
+/** Falta correr (o volver a correr) supabase/esquema.sql: no existe la tabla o la función. */
+const sinEsquema = (e: unknown) =>
+  ['PGRST202', 'PGRST205', '42P01', '42883'].includes(String((e as { code?: unknown } | null)?.code ?? ''));
+const AVISO_ESQUEMA = 'Falta correr supabase/esquema.sql en Supabase › SQL Editor (la versión nueva, con usuarios).';
+
+/** Pregunta a Supabase qué puede hacer esta cuenta y lo recuerda para cuando no haya señal. */
+async function averiguarRol(): Promise<Rol | null> {
+  const sb = await cliente();
+  const { data, error } = await sb.rpc('mi_rol');
+  if (error) throw error;
+  const rol: Rol | null = data === 'admin' || data === 'personero' ? data : null;
+  rolPorAveriguar = false;
+  const id = (await sb.auth.getSession()).data.session?.user.id;
+  try {
+    localStorage.setItem(CLAVE_ROL, JSON.stringify({ id, rol }));
+  } catch {
+    // Sin espacio: se vuelve a preguntar la próxima vez.
+  }
+  ponerRol(rol);
+  if (rol === null) cambiar('sin-acceso');
+  return rol;
 }
 
 // ================= Datos ↔ filas de las tablas =================
@@ -244,8 +309,10 @@ async function subir(d: Datos) {
   const sb = await cliente();
   const nuevo = indexar(aFilas(d));
   const actual = base!;
+  // Los personeros solo anotan votos: colegios, mesas y partidos los cambia el administrador.
+  const tablas: readonly Tabla[] = rolActual === 'admin' ? TABLAS : ['votos_mesa'];
   try {
-    for (const t of TABLAS) {
+    for (const t of tablas) {
       const cambios = [...nuevo[t]].filter(([k, v]) => actual[t].get(k) !== v);
       for (const lote of lotes(cambios, 500)) {
         const { error } = await sb.from(t).upsert(
@@ -256,7 +323,7 @@ async function subir(d: Datos) {
         for (const [k, v] of lote) actual[t].set(k, v);
       }
     }
-    for (const t of [...TABLAS].reverse()) {
+    for (const t of [...tablas].reverse()) {
       const bajas = [...actual[t].keys()].filter((k) => !nuevo[t].has(k));
       for (const lote of lotes(bajas, 200)) {
         const { error } = await sb.from(t).delete().in(claveDe(t), lote);
@@ -312,7 +379,7 @@ const porSesion = (e: unknown) => {
 
 /** Se llama en cada guardar(): junta los cambios y los sube al rato. */
 export function programarSubida(d: Datos) {
-  if (!nubeActiva || !base) return;
+  if (!nubeActiva || !base || rolActual === null) return;
   datos = d;
   sucio = true;
   cambiar(navigator.onLine ? 'guardando' : 'pendiente');
@@ -341,7 +408,7 @@ function aplicar(remoto: Filas) {
 
 /** Sube lo cambiado aquí y trae lo de la nube, una cosa a la vez, hasta que no quede nada. */
 async function trabajar() {
-  if (trabajando || !datos || !(hayCambios() || porTraer)) return;
+  if (trabajando || !datos || rolActual === null || !(hayCambios() || porTraer)) return;
   trabajando = true;
   clearTimeout(reintento);
   try {
@@ -364,27 +431,44 @@ async function trabajar() {
         porTraer = true;
         throw e;
       }
+      // Ya hay señal: si no se pudo antes, se pregunta qué puede hacer esta cuenta.
+      if (rolPorAveriguar && (await averiguarRol()) === null) return;
       // Algo cambió aquí mientras se traían los datos: se sube primero y se vuelve a traer.
       if (hayCambios()) {
         porTraer = true;
         continue;
       }
       if (!remoto.distritos.length) {
-        // Sin sesión, la seguridad de Supabase devuelve las tablas vacías.
+        // Sin sesión o sin acceso, la seguridad de Supabase devuelve las tablas vacías.
         if (!(await usuario())) return cambiar('sin-sesion');
+        if ((await averiguarRol()) === null) return;
         base = null;
         sucio = false;
         guardarBase();
         document.body.classList.remove('cargando-nube');
-        return cambiar('vacia', 'Entra a Administración › Resumen para subir los datos iniciales.');
+        return cambiar(
+          'vacia',
+          rolActual === 'admin'
+            ? 'Entra a Administración › Resumen para subir los datos iniciales.'
+            : 'El administrador todavía no subió los colegios y mesas.',
+        );
       }
       aplicar(remoto);
     }
     cambiar('sincronizado');
   } catch (e) {
-    // Se cerró la sesión (venció o la borraron en Supabase): hay que volver a entrar.
-    // (Solo se revisa si Supabase la rechazó: sin red, revisarla tarda y no hace falta.)
-    if (porSesion(e) && (await usuario().catch(() => '')) === null) return cambiar('sin-sesion');
+    // Se cerró la sesión (venció o la borraron en Supabase) o le quitaron el acceso.
+    // (Solo se revisa si Supabase rechazó el pedido: sin red, revisarlo tarda y no hace falta.)
+    if (porSesion(e)) {
+      const correo = await usuario().catch(() => '');
+      if (correo === null) return cambiar('sin-sesion');
+      if (correo && (await averiguarRol().catch(() => rolActual)) === null) return;
+    }
+    if (sinEsquema(e)) {
+      cambiar('sin-esquema', AVISO_ESQUEMA);
+      reintento = setTimeout(trabajar, 8000);
+      return;
+    }
     falla(e);
     // Lo anotado queda en este navegador y se reintenta solo.
     reintento = setTimeout(trabajar, 8000);
@@ -435,12 +519,25 @@ export async function conectar(d: Datos, repintarPagina: () => void, opciones: {
   // La primera vez hay que esperar los datos de la nube: lo anotado antes se perdería al
   // traerlos. Si ya se conectó antes, se puede trabajar desde el primer momento.
   if (!base) document.body.classList.add('cargando-nube');
+  let id: string | undefined;
   try {
-    if (!(await usuario())) return cambiar('sin-sesion');
+    const { data, error } = await (await cliente()).auth.getSession();
+    if (!data.session && sinRed(error)) throw error;
+    if (!data.session) return cambiar('sin-sesion');
+    id = data.session.user.id;
   } catch {
     // Sin conexión: se sigue con la sesión guardada y la copia de este navegador.
   }
-  cambiar(navigator.onLine ? 'conectando' : 'pendiente');
+  // Qué puede hacer esta cuenta. Sin señal vale lo último que se supo; si nunca se supo, o
+  // si lo último fue «sin acceso» (quizá el administrador ya se lo dio), se espera a Supabase.
+  ponerRol(rolGuardado(id));
+  const pregunta = averiguarRol().catch((e) => {
+    rolPorAveriguar = true;
+    if (sinEsquema(e)) cambiar('sin-esquema', AVISO_ESQUEMA);
+  });
+  if (!rolActual) await pregunta;
+  if (rolActual === null) return cambiar('sin-acceso');
+  if (estado !== 'sin-esquema') cambiar(navigator.onLine ? 'conectando' : 'pendiente');
   // Primero se sube lo anotado aquí sin conexión (si no hay nada, no se sube nada).
   sucio = base !== null;
   porTraer = true;

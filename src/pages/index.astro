@@ -31,7 +31,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </div>
     </div>
     <div class="estado-mesa">
-      <span class="info"><span id="info"></span><a class="enlace-total" id="total-distrito" href={`${base}/admin/resultados`}>Total del distrito ›</a></span>
+      <span class="info"><span id="info"></span><a class="enlace-total" id="total-distrito" href={`${base}/admin/resultados`} data-solo-admin>Total del distrito ›</a></span>
       <span class="chips-estado" aria-live="polite">
         <span class="chip" id="por-confirmar" title="Los números de mesa de este distrito son de la segunda vuelta de junio. Revísalos y corrígelos en Colegios." hidden>
           N° por confirmar
@@ -45,7 +45,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <section class="card empty" id="vacio" hidden>
     <p id="vacio-texto"></p>
-    <a class="btn primary" href={`${base}/admin/colegios`}>Ir a Administración › Colegios</a>
+    <a class="btn primary" href={`${base}/admin/colegios`} data-solo-admin>Ir a Administración › Colegios</a>
+    <p class="muted" data-solo-personero>Avísale al administrador para que los agregue.</p>
   </section>
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
@@ -204,7 +205,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const sinPartidos = (col: Columna) => `
     <li class="fila-vacia">
       ${col.distrito ? `Faltan los partidos para alcalde del ${esc(col.titulo.toLowerCase())}: no venían en las listas cargadas.` : `Todavía no hay partidos en «${esc(col.titulo)}».`}
-      <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}">Agrégalos en Administración › Partidos</a>.
+      <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}" data-solo-admin>Agrégalos en Administración › Partidos.</a>
+      <span data-solo-personero>Avísale al administrador para que los agregue.</span>
     </li>`;
 
   /** Totales por columna, avisos y barra de estado de la mesa actual. */

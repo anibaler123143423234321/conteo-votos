@@ -25,6 +25,7 @@ entran en una sola pantalla; en celular se cambia de columna con las pestañas. 
 | `/admin/colegios` | CRUD de colegios: crear (con cantidad de aulas y mesas), editar, eliminar, buscar. |
 | `/admin/mesas` | CRUD de mesas: crear, editar (número, aula, electores), eliminar, ir a contarla. |
 | `/admin/partidos` | CRUD de partidos por columna de la cédula: crear, editar, ordenar, eliminar. |
+| `/admin/personeros` | Solo con Supabase: crear personeros, cambiarles la contraseña, quitarles o devolverles el acceso y ver cuántas mesas anotó cada uno. |
 
 Las rutas viejas (`/resultados`, `/colegios`, `/partidos`) redirigen a las nuevas.
 
@@ -56,22 +57,36 @@ descargar un respaldo desde `/admin`.
 
 ## Conectar con Supabase
 
-Con Supabase, todos los personeros ven y guardan en la misma base de datos, cada mesa se
-guarda por separado (dos personas contando mesas distintas no se pisan), lo que se anota
-sin internet se sube al volver la conexión, y Resumen y Resultados se actualizan solos.
-Para entrar hace falta usuario y contraseña.
+Con Supabase, todos ven y guardan en la misma base de datos, cada mesa se guarda por
+separado (dos personas contando mesas distintas no se pisan), lo que se anota sin internet
+se sube al volver la conexión, y Resumen y Resultados se actualizan solos.
+
+Hay **un administrador**, que maneja todo y crea a los personeros desde la web. Los
+**personeros** solo anotan votos: no ven Administración ni pueden cambiar colegios, mesas o
+partidos. Una cuenta que no creó el administrador no ve nada. Esto lo hace cumplir Supabase
+(las políticas de `esquema.sql`), no solo la web.
 
 1. Crea un proyecto en [supabase.com](https://supabase.com) (el plan gratis alcanza).
-2. **SQL Editor → New query**: pega todo [`supabase/esquema.sql`](supabase/esquema.sql) y
-   dale **Run**. Crea las tablas, la seguridad (solo usuarios con sesión) y el tiempo real.
-3. **Authentication → Sign In / Providers**: desactiva *Allow new users to sign up*, así
-   nadie más puede crearse una cuenta.
-4. **Authentication → Users → Add user → Create new user**: crea un usuario (correo y
-   contraseña, con *Auto Confirm User*) para cada administrador y personero.
-5. Botón **Connect** del proyecto (o *Project Settings → Data API* y *API Keys*): copia la
+2. **Authentication → Users → Add user → Create new user**: crea **tu** cuenta de
+   administrador (correo y contraseña, con *Auto Confirm User*). Es la única que se crea ahí.
+3. **Authentication → Sign In / Providers → Email**: desactiva **Confirm email**, para que
+   los personeros que crees puedan entrar al momento. Deja activado *Allow new users to sign
+   up*: la web lo usa para crear a los personeros, y una cuenta que alguien se cree por su
+   cuenta no puede ver ni cambiar nada.
+4. **SQL Editor → New query**: pega todo [`supabase/esquema.sql`](supabase/esquema.sql) y
+   dale **Run**. Si ya habías corrido una versión anterior, córrelo igual: se actualiza sin
+   perder datos.
+5. **SQL Editor → New query**: corre esta línea con **tu** correo:
+
+   ```sql
+   select public.hacer_admin('tu-correo@gmail.com');
+   ```
+
+   Tiene que responder «Listo: … es el administrador».
+6. Botón **Connect** del proyecto (o *Project Settings → Data API* y *API Keys*): copia la
    *Project URL* y la clave pública (*publishable*, o *anon public* en *Legacy API Keys*).
    **Nunca** uses la clave *secret* / *service_role*.
-6. Pon esas dos variables donde se publica la web:
+7. Pon esas dos variables donde se publica la web:
 
    | Variable | Valor |
    |---|---|
@@ -85,8 +100,11 @@ Para entrar hace falta usuario y contraseña.
      Publicar en GitHub Pages → Run workflow*. Queda en
      `https://anibaler123143423234321.github.io/conteo-votos/`.
    - **En tu computadora**: copia `.env.example` como `.env` y complétalo.
-7. Entra a la web con tu usuario, ve a **Administración → Resumen** y pulsa
-   **Subir datos a Supabase** (solo la primera vez). Desde ahí todos trabajan con esos datos.
+8. Entra a la web con tu cuenta, ve a **Administración → Resumen** y pulsa **Subir datos a
+   Supabase** (solo la primera vez).
+9. **Administración → Personeros → + Nuevo personero**: nombre, correo y contraseña (la web
+   propone una fácil de dictar). Al crearlo te muestra los datos para copiarlos o mandarlos
+   por WhatsApp. Ahí mismo les cambias la contraseña o les quitas el acceso.
 
 ## Comandos
 

@@ -1,0 +1,333 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+
+// Los personeros solo existen con Supabase: cada uno entra con su propia cuenta.
+const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_ANON_KEY);
+---
+
+<AdminLayout title="Personeros">
+  <div class="cabecera">
+    <h1>Personeros</h1>
+    {nube && <button type="button" class="btn primary" id="nuevo">+ Nuevo personero</button>}
+  </div>
+
+  {
+    nube ? (
+      <section class="card">
+        <p class="nota-card">
+          Cada personero entra con su correo y su contraseña, y <strong>solo puede anotar votos</strong>. Colegios, mesas,
+          partidos, resultados y esta lista son solo del administrador.
+        </p>
+        <div class="barra-crud">
+          <label class="campo ancho">
+            <span class="campo-et">Buscar</span>
+            <input id="f-buscar" type="search" placeholder="Nombre o correo" autocomplete="off" />
+          </label>
+          <span class="cuenta" id="cuenta" />
+        </div>
+        <div class="tabla-wrap">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Personero</th>
+                <th>Correo</th>
+                <th class="n">Mesas anotadas</th>
+                <th>Última vez</th>
+                <th>Acceso</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody id="filas">
+              <tr class="vacia">
+                <td colspan="6">Cargando…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    ) : (
+      <section class="card">
+        <p class="nota-card">
+          Los personeros se crean cuando la web está conectada a Supabase: así cada uno entra con su propia cuenta y
+          anota votos desde su celular. Los pasos están en el README, en «Conectar con Supabase».
+        </p>
+      </section>
+    )
+  }
+
+  <dialog class="modal" id="dlg" aria-labelledby="dlg-titulo">
+    <form id="form" novalidate>
+      <header class="modal-head">
+        <h2 id="dlg-titulo">Nuevo personero</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <label class="campo-v">
+          Nombre
+          <input class="control" name="nombre" autocomplete="off" placeholder="Ej.: Juan Pérez" />
+        </label>
+        <label class="campo-v">
+          Correo
+          <input class="control" name="correo" type="email" inputmode="email" autocomplete="off" placeholder="Ej.: juan@gmail.com" />
+          <small data-modo="nuevo">Con este correo entra a la web. No se le manda ningún mensaje.</small>
+        </label>
+        <div class="campo-v">
+          <label for="clave">
+            <span data-modo="nuevo">Contraseña</span>
+            <span data-modo="editar">Contraseña nueva <span class="opcional">(déjala vacía para no cambiarla)</span></span>
+          </label>
+          <div class="con-boton">
+            <input class="control" id="clave" name="clave" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button type="button" class="btn" id="generar">Generar</button>
+          </div>
+          <small>Al menos 6 caracteres. Al terminar te la muestro para que se la mandes.</small>
+        </div>
+        <label class="check" data-modo="editar">
+          <input type="checkbox" name="activo" />
+          <span>Puede entrar y anotar votos</span>
+        </label>
+        <p class="error" id="dlg-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <button type="button" class="btn" data-cerrar>Cancelar</button>
+        <button type="submit" class="btn primary" id="guardar">Crear personero</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="dlg-listo" aria-labelledby="listo-titulo">
+    <div>
+      <header class="modal-head">
+        <h2 id="listo-titulo">Personero creado</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <p id="listo-texto"></p>
+        <pre class="datos-acceso" id="listo-datos"></pre>
+        <p class="aviso" id="listo-aviso" hidden></p>
+      </div>
+      <footer class="modal-pie">
+        <a class="btn" id="listo-whatsapp" target="_blank" rel="noopener">Enviar por WhatsApp</a>
+        <button type="button" class="btn primary" id="listo-copiar">Copiar</button>
+      </footer>
+    </div>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { ICONO_EDITAR } from '../../lib/iconos';
+  import { cargar, esc, fmt } from '../../lib/store';
+  import { alRol, conectar, nubeActiva } from '../../lib/nube';
+  import {
+    actividad,
+    cambiarClave,
+    cambiarDatos,
+    claveNueva,
+    crearPersonero,
+    listarUsuarios,
+    type Actividad,
+    type Usuario,
+  } from '../../lib/usuarios';
+
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const d = cargar();
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+  if (nubeActiva) {
+    const filas = $('filas');
+    const buscar = $<HTMLInputElement>('f-buscar');
+    const dlg = $<HTMLDialogElement>('dlg');
+    const form = $<HTMLFormElement>('form');
+    const dlgError = $('dlg-error');
+    const guardarBtn = $<HTMLButtonElement>('guardar');
+    const listo = $<HTMLDialogElement>('dlg-listo');
+    const campo = (nombre: string) => form.elements.namedItem(nombre) as HTMLInputElement;
+
+    let usuarios: Usuario[] = [];
+    let hechos = new Map<string, Actividad>();
+    let cargada = false;
+    /** Personero que se está editando (o null si es uno nuevo). */
+    let editando: Usuario | null = null;
+
+    const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const mensaje = (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e));
+    const cuando = (iso?: string) =>
+      iso
+        ? new Date(iso).toLocaleString('es-PE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : '—';
+
+    function pintar() {
+      if (!cargada) return;
+      const q = sinTildes(buscar.value.trim());
+      const lista = usuarios.filter((u) => !q || sinTildes(u.nombre).includes(q) || u.correo.includes(q));
+      const personeros = usuarios.filter((u) => u.rol === 'personero').length;
+      $('cuenta').textContent = `${fmt(personeros)} ${personeros === 1 ? 'personero' : 'personeros'}`;
+      filas.innerHTML = lista.length
+        ? lista
+            .map((u) => {
+              const h = hechos.get(u.id);
+              const nombre = u.nombre || u.correo;
+              const acceso =
+                u.rol === 'admin'
+                  ? '<span class="chip">Administrador</span>'
+                  : u.activo
+                    ? '<span class="chip ok">Puede anotar</span>'
+                    : '<span class="chip warn">Sin acceso</span>';
+              return `
+            <tr data-u="${esc(u.id)}">
+              <td class="principal">${esc(nombre)}</td>
+              <td data-et="Correo">${esc(u.correo)}</td>
+              <td class="n" data-et="Mesas anotadas">${fmt(h?.mesas ?? 0)}</td>
+              <td data-et="Última vez">${cuando(h?.ultima)}</td>
+              <td data-et="Acceso">${acceso}</td>
+              <td class="acciones-fila">${
+                u.rol === 'admin'
+                  ? ''
+                  : `<button type="button" class="icon-btn" data-accion="editar" aria-label="Editar a ${esc(nombre)}" title="Editar">${ICONO_EDITAR}</button>`
+              }</td>
+            </tr>`;
+            })
+            .join('')
+        : `<tr class="vacia"><td colspan="6">${
+            q ? 'Nadie coincide con la búsqueda.' : 'Todavía no hay personeros. Crea el primero con «+ Nuevo personero».'
+          }</td></tr>`;
+    }
+
+    async function recargar() {
+      try {
+        [usuarios, hechos] = await Promise.all([listarUsuarios(), actividad()]);
+        // Primero el administrador; después los personeros por nombre.
+        usuarios.sort((a, b) =>
+          a.rol === b.rol ? (a.nombre || a.correo).localeCompare(b.nombre || b.correo, 'es') : a.rol === 'admin' ? -1 : 1,
+        );
+        cargada = true;
+        pintar();
+      } catch (e) {
+        filas.innerHTML = `<tr class="vacia"><td colspan="6">No se pudo cargar la lista: ${esc(mensaje(e))}</td></tr>`;
+      }
+    }
+
+    function error(texto: string) {
+      dlgError.textContent = texto;
+      dlgError.hidden = false;
+    }
+
+    function ocupado(si: boolean, texto?: string) {
+      guardarBtn.disabled = si;
+      if (texto) guardarBtn.textContent = texto;
+    }
+
+    function abrir(u?: Usuario) {
+      editando = u ?? null;
+      form.reset();
+      dlgError.hidden = true;
+      const modo = u ? 'editar' : 'nuevo';
+      form.querySelectorAll<HTMLElement>('[data-modo]').forEach((el) => (el.hidden = el.dataset.modo !== modo));
+      $('dlg-titulo').textContent = u ? `Editar a ${u.nombre || u.correo}` : 'Nuevo personero';
+      campo('nombre').value = u?.nombre ?? '';
+      campo('correo').value = u?.correo ?? '';
+      // El correo es la cuenta: no se cambia.
+      campo('correo').readOnly = !!u;
+      campo('clave').value = u ? '' : claveNueva();
+      campo('activo').checked = u?.activo ?? true;
+      ocupado(false, u ? 'Guardar' : 'Crear personero');
+      dlg.showModal();
+      campo('nombre').focus();
+    }
+
+    function mostrarListo(titulo: string, nombre: string, correo: string, clave: string, aviso?: string) {
+      const datos = `Conteo de votos · Ferreñafe\n${location.origin}${BASE}/\nCorreo: ${correo}\nContraseña: ${clave}`;
+      $('listo-titulo').textContent = titulo;
+      $('listo-texto').textContent = `${nombre} ya puede entrar con estos datos. Mándaselos:`;
+      $('listo-datos').textContent = datos;
+      $('listo-aviso').textContent = aviso ?? '';
+      $('listo-aviso').hidden = !aviso;
+      $<HTMLAnchorElement>('listo-whatsapp').href = `https://wa.me/?text=${encodeURIComponent(datos)}`;
+      $('listo-copiar').textContent = 'Copiar';
+      listo.showModal();
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const u = editando;
+      const nombre = campo('nombre').value.trim().replace(/\s+/g, ' ');
+      const correo = campo('correo').value.trim().toLowerCase();
+      const clave = campo('clave').value.trim();
+      if (!nombre) return error('Escribe el nombre del personero.');
+      if ((clave || !u) && clave.length < 6) return error('La contraseña debe tener al menos 6 caracteres.');
+
+      if (u) {
+        const activo = campo('activo').checked;
+        ocupado(true, 'Guardando…');
+        let problema: string | null = null;
+        if (nombre !== u.nombre || activo !== u.activo) problema = await cambiarDatos(u.id, { nombre, activo });
+        if (!problema && clave) problema = await cambiarClave(u.id, clave);
+        ocupado(false, 'Guardar');
+        if (problema) return error(problema);
+        dlg.close();
+        await recargar();
+        if (clave) mostrarListo('Contraseña cambiada', nombre, u.correo, clave);
+        return;
+      }
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return error('Escribe un correo válido, por ejemplo juan@gmail.com.');
+      const existente = usuarios.find((x) => x.correo.toLowerCase() === correo);
+      if (existente) {
+        return error(
+          existente.rol === 'admin'
+            ? 'Ese es el correo del administrador.'
+            : existente.activo
+              ? 'Ese personero ya está en la lista.'
+              : 'Ese personero ya está en la lista, sin acceso: edítalo para devolvérselo.',
+        );
+      }
+      ocupado(true, 'Creando…');
+      const r = await crearPersonero(nombre, correo, clave);
+      ocupado(false, 'Crear personero');
+      if (r.error) return error(r.error);
+      dlg.close();
+      await recargar();
+      mostrarListo('Personero creado', nombre, correo, clave, r.aviso);
+    });
+
+    filas.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-accion="editar"]');
+      const id = b?.closest<HTMLElement>('[data-u]')?.dataset.u;
+      const u = usuarios.find((x) => x.id === id);
+      if (u) abrir(u);
+    });
+
+    $('generar').addEventListener('click', () => {
+      campo('clave').value = claveNueva();
+      campo('clave').focus();
+    });
+
+    $('listo-copiar').addEventListener('click', async () => {
+      const b = $('listo-copiar');
+      try {
+        await navigator.clipboard.writeText($('listo-datos').textContent ?? '');
+        b.textContent = '✓ Copiado';
+      } catch {
+        // Sin permiso para el portapapeles: se deja el texto seleccionado para copiarlo a mano.
+        getSelection()?.selectAllChildren($('listo-datos'));
+      }
+    });
+
+    $('nuevo').addEventListener('click', () => abrir());
+    for (const ventana of [dlg, listo]) {
+      ventana.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', () => ventana.close()));
+      // Clic fuera de la ventana: cerrar.
+      ventana.addEventListener('click', (e) => {
+        if (e.target === ventana) ventana.close();
+      });
+    }
+    buscar.addEventListener('input', pintar);
+
+    // La lista solo la ve el administrador (Supabase no se la entrega a nadie más).
+    alRol((rol) => {
+      if (rol === 'admin' && !cargada) recargar();
+    });
+  }
+
+  conectar(d, () => {});
+</script>
