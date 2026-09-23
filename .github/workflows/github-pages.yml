@@ -1,0 +1,54 @@
+# Publica la web en GitHub Pages con la conexión a Supabase.
+#
+# 1. Settings → Secrets and variables → Actions → New repository secret:
+#    PUBLIC_SUPABASE_URL y PUBLIC_SUPABASE_ANON_KEY (Supabase → botón Connect del proyecto).
+# 2. Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# 3. Actions → "Publicar en GitHub Pages" → Run workflow.
+#
+# La web queda en https://<usuario>.github.io/conteo-votos/
+# (Si publicas en Vercel no hace falta: allí las variables van en el proyecto de Vercel.)
+name: Publicar en GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - id: pages
+        uses: actions/configure-pages@v5
+      - run: npm ci
+      - run: npm run build
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          SITE: ${{ steps.pages.outputs.origin }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

@@ -1,6 +1,9 @@
-// Datos del conteo: se guardan en el navegador (localStorage).
+// Datos del conteo: se guardan en el navegador (localStorage) y, si está configurada,
+// en Supabase (ver nube.ts).
 import { COLUMNAS_POR_DEFECTO } from '../data/partidos';
 import { DISTRITOS } from '../data/provincia-ferrenafe';
+import { guardarCopia, leerCopia, VERSION_DATOS } from './copia';
+import { programarSubida } from './nube';
 
 export interface Partido {
   id: string;
@@ -90,8 +93,6 @@ export const NULO = '_nulo';
 /** La ONPE arma cada mesa con 300 electores como máximo. */
 export const MAX_ELECTORES_MESA = 300;
 
-const VERSION = 3;
-const CLAVE = 'conteo-votos:datos';
 
 export const uid = () =>
   Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -134,7 +135,7 @@ const distritosIniciales = (): Distrito[] =>
   }));
 
 export const datosIniciales = (): Datos => ({
-  version: VERSION,
+  version: VERSION_DATOS,
   provincia: 'Ferreñafe',
   columnas: columnasPorDefecto(),
   distritos: distritosIniciales(),
@@ -204,31 +205,23 @@ export function normalizar(datos: Datos): Datos {
   return d;
 }
 
+/** Datos de este navegador (o los iniciales). Con la nube, conectar() los actualiza luego. */
 export function cargar(): Datos {
-  try {
-    const raw = localStorage.getItem(CLAVE);
-    if (raw) {
-      const d = JSON.parse(raw);
-      if (esDatos(d)) {
-        const anterior = d.version;
-        normalizar(d);
-        if (d.version !== anterior) guardar(d);
-        return d;
-      }
-    }
-  } catch {
-    // Almacenamiento no disponible o datos dañados: se empieza de cero.
+  const d = leerCopia();
+  if (esDatos(d)) {
+    const anterior = d.version;
+    normalizar(d);
+    if (d.version !== anterior) guardarCopia(d);
+    return d;
   }
   return datosIniciales();
 }
 
+/** Guarda en este navegador y, si hay nube, sube los cambios al rato. */
 export function guardar(d: Datos): boolean {
-  try {
-    localStorage.setItem(CLAVE, JSON.stringify(d));
-    return true;
-  } catch {
-    return false;
-  }
+  const ok = guardarCopia(d);
+  programarSubida(d);
+  return ok;
 }
 
 /** Convierte cualquier valor en un entero >= 0. */

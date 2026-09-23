@@ -57,6 +57,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     votosDe,
     type Datos,
   } from '../../lib/store';
+  import { conectar } from '../../lib/nube';
 
   const d: Datos = cargar();
   let f = { distrito: '', colegio: '', aula: '', mesa: '' };
@@ -218,4 +219,5 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   });
 
   pintar();
+  conectar(d, pintar, { enVivo: true });
 </script>

@@ -49,8 +49,43 @@ cuyos partidos se agregan en `/admin/partidos`.
 
 La web abre en modo claro; el botón de la luna activa el modo oscuro para quien lo prefiera.
 
-Los datos se guardan en el navegador (`localStorage`), no hay servidor ni base de datos.
-Descarga un respaldo de vez en cuando desde `/admin`.
+Sin Supabase, los datos se guardan solo en el navegador (`localStorage`). Con Supabase se
+comparten entre todos los celulares y computadoras (ver abajo). En los dos casos se puede
+descargar un respaldo desde `/admin`.
+
+## Conectar con Supabase
+
+Con Supabase, todos los personeros ven y guardan en la misma base de datos, cada mesa se
+guarda por separado (dos personas contando mesas distintas no se pisan), lo que se anota
+sin internet se sube al volver la conexión, y Resumen y Resultados se actualizan solos.
+Para entrar hace falta usuario y contraseña.
+
+1. Crea un proyecto en [supabase.com](https://supabase.com) (el plan gratis alcanza).
+2. **SQL Editor → New query**: pega todo [`supabase/esquema.sql`](supabase/esquema.sql) y
+   dale **Run**. Crea las tablas, la seguridad (solo usuarios con sesión) y el tiempo real.
+3. **Authentication → Sign In / Providers**: desactiva *Allow new users to sign up*, así
+   nadie más puede crearse una cuenta.
+4. **Authentication → Users → Add user → Create new user**: crea un usuario (correo y
+   contraseña, con *Auto Confirm User*) para cada administrador y personero.
+5. Botón **Connect** del proyecto (o *Project Settings → Data API* y *API Keys*): copia la
+   *Project URL* y la clave pública (*publishable*, o *anon public* en *Legacy API Keys*).
+   **Nunca** uses la clave *secret* / *service_role*.
+6. Pon esas dos variables donde se publica la web:
+
+   | Variable | Valor |
+   |---|---|
+   | `PUBLIC_SUPABASE_URL` | la Project URL, p. ej. `https://abcd1234.supabase.co` |
+   | `PUBLIC_SUPABASE_ANON_KEY` | la clave pública |
+
+   - **Vercel** (conteo-votos.vercel.app): *Project → Settings → Environment Variables*,
+     agrégalas y luego *Deployments → Redeploy*. Vercel no lee los secretos de GitHub.
+   - **GitHub Pages**: *Settings → Secrets and variables → Actions → New repository secret*
+     (los mismos nombres); *Settings → Pages → Source: GitHub Actions*; y en *Actions →
+     Publicar en GitHub Pages → Run workflow*. Queda en
+     `https://anibaler123143423234321.github.io/conteo-votos/`.
+   - **En tu computadora**: copia `.env.example` como `.env` y complétalo.
+7. Entra a la web con tu usuario, ve a **Administración → Resumen** y pulsa
+   **Subir datos a Supabase** (solo la primera vez). Desde ahí todos trabajan con esos datos.
 
 ## Comandos
 

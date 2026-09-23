@@ -8,6 +8,14 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     <span class="muted">Provincia de Ferreñafe · Elecciones Regionales y Municipales 2026</span>
   </div>
 
+  <section class="card datos" id="nube-vacia" hidden>
+    <p>
+      <strong>La base de datos de Supabase está vacía.</strong> Sube los datos de este navegador
+      (colegios, mesas, partidos y votos) para que todos trabajen con la misma información.
+    </p>
+    <button type="button" class="btn primary" id="sembrar">Subir datos a Supabase</button>
+  </section>
+
   <div class="kpis" id="kpis"></div>
 
   <section class="card">
@@ -31,7 +39,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   </section>
 
   <section class="card datos">
-    <p>
+    <p id="texto-datos">
       Todo se guarda en este navegador. Descarga un respaldo de vez en cuando para no perder el
       conteo o para pasarlo a otra computadora.
     </p>
@@ -60,13 +68,20 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     pct,
     type Datos,
   } from '../../lib/store';
+  import { alEstado, conectar, nubeActiva, sembrar } from '../../lib/nube';
 
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
-  let d: Datos = cargar();
+  const d: Datos = cargar();
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const archivo = $<HTMLInputElement>('archivo');
 
   const porcentaje = (n: number, total: number) => (total ? (n / total) * 100 : 0);
+  // Con Supabase, borrar o cargar un respaldo cambia los datos de todos.
+  const paraTodos = nubeActiva ? ' Se cambia en Supabase, para todos los que usan la web.' : '';
+  if (nubeActiva) {
+    $('texto-datos').textContent =
+      'Los datos están en Supabase y cada navegador guarda una copia. Descarga un respaldo de vez en cuando.';
+  }
 
   function pintar() {
     const todas = mesas(d);
@@ -123,8 +138,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     try {
       const nuevo = JSON.parse(await file.text());
       if (!esDatos(nuevo)) throw new Error('formato');
-      if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
-      d = normalizar(nuevo);
+      if (!confirm(`Esto reemplazará todos los datos actuales por los del respaldo.${paraTodos} ¿Continuar?`)) return;
+      // Se reemplaza en el mismo objeto: la conexión con la nube lo sigue usando.
+      Object.assign(d, normalizar(nuevo));
       guardar(d);
       pintar();
     } catch {
@@ -133,18 +149,30 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   });
 
   $('borrar-votos').addEventListener('click', () => {
-    if (!confirm('¿Borrar los votos de todas las mesas? Los colegios, aulas, mesas y partidos se mantienen.')) return;
+    if (!confirm(`¿Borrar los votos de todas las mesas? Los colegios, aulas, mesas y partidos se mantienen.${paraTodos}`)) return;
     for (const { mesa } of mesas(d)) mesa.votos = {};
     guardar(d);
     pintar();
   });
 
   $('borrar-todo').addEventListener('click', () => {
-    if (!confirm('¿Borrar TODO y volver al inicio (colegios de la ONPE y partidos originales)? Se pierden todos los votos.')) return;
-    d = datosIniciales();
+    if (!confirm(`¿Borrar TODO y volver al inicio (colegios de la ONPE y partidos originales)? Se pierden todos los votos.${paraTodos}`)) return;
+    Object.assign(d, datosIniciales());
     guardar(d);
     pintar();
   });
 
+  const vacia = $('nube-vacia');
+  alEstado((estado) => {
+    vacia.hidden = estado !== 'vacia';
+  });
+  $('sembrar').addEventListener('click', async () => {
+    if (!confirm('¿Subir a Supabase los colegios, mesas, partidos y votos de este navegador?')) return;
+    $<HTMLButtonElement>('sembrar').disabled = true;
+    await sembrar(d);
+    pintar();
+  });
+
   pintar();
+  conectar(d, pintar, { enVivo: true });
 </script>

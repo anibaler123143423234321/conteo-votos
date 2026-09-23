@@ -101,6 +101,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     ubicarColegio,
     uid,
   } from '../../lib/store';
+  import { conectar } from '../../lib/nube';
 
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
   const CLAVE_FILTRO = 'conteo-votos:admin-distrito';
@@ -281,4 +282,5 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   });
 
   pintar();
+  conectar(d, pintar);
 </script>

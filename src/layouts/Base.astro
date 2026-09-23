@@ -26,10 +26,32 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   </head>
   <body>
     <slot />
+
+    <!-- Solo con Supabase: sin sesión no se puede ver ni cambiar nada. -->
+    <div class="acceso" id="acceso" hidden>
+      <form class="card acceso-card" id="form-acceso" novalidate>
+        <img src={`${base}/favicon.svg`} alt="" width="40" height="40" />
+        <h1>Conteo de votos</h1>
+        <p class="muted">Ingresa con el correo y la contraseña que te dio el administrador.</p>
+        <label class="campo-v">
+          Correo
+          <input class="control" name="correo" type="email" autocomplete="username" inputmode="email" required />
+        </label>
+        <label class="campo-v">
+          Contraseña
+          <input class="control" name="clave" type="password" autocomplete="current-password" required />
+        </label>
+        <p class="error" id="acceso-error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">Entrar</button>
+      </form>
+    </div>
   </body>
 </html>
 
 <script>
+  import { alEstado, cerrarSesion, iniciarSesion, nubeActiva, usuario, type EstadoNube } from '../lib/nube';
+
+  // ---------- Modo claro / oscuro ----------
   const CLAVE_MODO = 'conteo-votos:modo';
   const raiz = document.documentElement;
 
@@ -56,4 +78,80 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   );
 
   aplicar(raiz.dataset.theme === 'dark');
+
+  // ---------- Supabase: sesión y estado ----------
+  const textos: Record<EstadoNube, [texto: string, clase: string]> = {
+    local: ['', ''],
+    'sin-sesion': ['', ''],
+    conectando: ['☁ Conectando…', ''],
+    sincronizado: ['☁ Guardado en la nube', 'ok'],
+    guardando: ['☁ Guardando…', ''],
+    pendiente: ['⚠ Sin conexión: se guardará al volver', 'warn'],
+    vacia: ['☁ Base de datos vacía', 'warn'],
+    error: ['⚠ No se pudo guardar en la nube', 'error'],
+  };
+
+  if (nubeActiva) {
+    const acceso = document.getElementById('acceso')!;
+    const form = document.getElementById('form-acceso') as HTMLFormElement;
+    const error = document.getElementById('acceso-error')!;
+    const campo = (nombre: string) => form.elements.namedItem(nombre) as HTMLInputElement;
+    const pedirAcceso = () => {
+      if (!acceso.hidden) return;
+      acceso.hidden = false;
+      campo('correo').focus();
+    };
+
+    alEstado((estado, detalle) => {
+      // Sin sesión o la sesión venció: hay que (volver a) entrar. Lo anotado queda en el navegador.
+      if (estado === 'sin-sesion') pedirAcceso();
+      const [texto, clase] = textos[estado];
+      document.querySelectorAll<HTMLElement>('[data-nube]').forEach((el) => {
+        el.hidden = !texto;
+        el.textContent = texto;
+        el.className = `chip ${clase}`.trim();
+        el.title = detalle;
+      });
+    });
+
+    usuario()
+      .then((correo) => {
+        if (!correo) return pedirAcceso();
+        document.querySelectorAll<HTMLButtonElement>('[data-salir]').forEach((b) => {
+          b.hidden = false;
+          b.title = `Sesión de ${correo}`;
+          b.addEventListener('click', async () => {
+            if (!confirm(`¿Cerrar la sesión de ${correo}?`)) return;
+            await cerrarSesion();
+            location.reload();
+          });
+        });
+      })
+      .catch(() => {
+        // Sin conexión: se usa la sesión guardada; la página avisa en su estado.
+      });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const correo = campo('correo').value.trim();
+      const clave = campo('clave').value;
+      if (!correo || !clave) {
+        error.textContent = 'Escribe tu correo y tu contraseña.';
+        error.hidden = false;
+        return;
+      }
+      const boton = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+      boton.disabled = true;
+      error.hidden = true;
+      try {
+        const problema = await iniciarSesion(correo, clave);
+        if (!problema) return location.reload();
+        error.textContent = problema;
+      } catch {
+        error.textContent = 'No hay conexión con el servidor. Revisa tu internet.';
+      }
+      error.hidden = false;
+      boton.disabled = false;
+    });
+  }
 </script>

@@ -100,6 +100,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     votosDe,
     type Columna,
   } from '../../lib/store';
+  import { conectar } from '../../lib/nube';
 
   const CLAVE_COLUMNA = 'conteo-votos:admin-columna';
   const d = cargar();
@@ -163,7 +164,11 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
         </tr>`,
           )
           .join('')
-      : '<tr class="vacia"><td colspan="4">Todavía no hay partidos en esta columna. Usa «+ Nuevo partido» y agrégalos en el orden de la cédula.</td></tr>';
+      : `<tr class="vacia"><td colspan="4">${
+          distrito
+            ? `Faltan los partidos para alcalde del distrito de ${esc(distrito.nombre)}: no venían en las listas que se cargaron (solo estaban las de Gobernador, Consejo Regional y Provincia). Agrégalos con «+ Nuevo partido», en el mismo orden de la cédula de ${esc(distrito.nombre)}.`
+            : 'Todavía no hay partidos en esta columna. Usa «+ Nuevo partido» y agrégalos en el orden de la cédula.'
+        }</td></tr>`;
   }
 
   function error(id: string, texto: string) {
@@ -301,4 +306,5 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   });
 
   pintar();
+  conectar(d, pintar);
 </script>

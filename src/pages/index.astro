@@ -38,6 +38,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         </span>
         <span class="chip" id="chequeo"></span>
         <span class="chip" id="guardado"></span>
+        <span class="chip" data-nube hidden></span>
       </span>
     </div>
   </section>
@@ -73,6 +74,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     type Columna,
     type Mesa,
   } from '../lib/store';
+  import { conectar, nubeActiva } from '../lib/nube';
 
   const CLAVE_SEL = 'conteo-votos:seleccion';
   const d = cargar();
@@ -199,7 +201,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   const sinPartidos = (col: Columna) => `
     <li class="fila-vacia">
-      Todavía no hay partidos en «${esc(col.titulo)}».
+      ${col.distrito ? `Faltan los partidos para alcalde del ${esc(col.titulo.toLowerCase())}: no venían en las listas cargadas.` : `Todavía no hay partidos en «${esc(col.titulo)}».`}
       <a href="${esc(columnas.dataset.partidos)}?columna=${encodeURIComponent(col.id)}">Agrégalos en Administración › Partidos</a>.
     </li>`;
 
@@ -221,9 +223,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       .filter(Boolean)
       .join(' · ');
 
+    // Con Supabase, el estado de guardado lo muestra la nube.
     guardado.className = ok ? 'chip' : 'chip error';
     guardado.textContent = ok ? '✓ Guardado' : '⚠ No se pudo guardar';
-    guardado.hidden = !mesa;
+    guardado.hidden = !mesa || nubeActiva;
     chequeo.hidden = !mesa;
     if (!mesa) return;
 
@@ -353,4 +356,5 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   });
 
   pintar();
+  conectar(d, pintar);
 </script>
