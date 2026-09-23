@@ -13,14 +13,15 @@ La pantalla para los personeros: elige distrito → colegio → aula → mesa y 
 de cada partido (con − / + o escribiendo el número), más votos en blanco y nulos. Se guarda
 solo. Avisa si los totales de las columnas no coinciden o si hay más de 300 votos. Con
 teclado, <kbd>Enter</kbd> pasa al siguiente partido. En computadora todas las columnas (3 o 4)
-entran en una sola pantalla; en celular se cambia de columna con las pestañas.
+entran en una sola pantalla; en celular se cambia de columna con las pestañas. El enlace
+**Total del distrito** abre la suma de todas las mesas del distrito elegido.
 
 ### Administración — `/admin`
 
 | Ruta | Qué hay |
 |---|---|
 | `/admin` | Resumen: mesas contadas, avance por distrito, respaldo (descargar / cargar) y borrar datos. |
-| `/admin/resultados` | Resultados de toda la provincia o por distrito, colegio, aula o mesa; CSV para Excel. |
+| `/admin/resultados` | Total de la provincia, de un distrito, colegio, aula o mesa (el título dice cuál), tabla **Total por distrito** con todos los distritos lado a lado y CSV para Excel. Se puede abrir filtrado: `/admin/resultados?distrito=pitipo`. |
 | `/admin/colegios` | CRUD de colegios: crear (con cantidad de aulas y mesas), editar, eliminar, buscar. |
 | `/admin/mesas` | CRUD de mesas: crear, editar (número, aula, electores), eliminar, ir a contarla. |
 | `/admin/partidos` | CRUD de partidos por columna de la cédula: crear, editar, ordenar, eliminar. |

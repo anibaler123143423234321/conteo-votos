@@ -31,7 +31,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </div>
     </div>
     <div class="estado-mesa">
-      <span class="info" id="info"></span>
+      <span class="info"><span id="info"></span><a class="enlace-total" id="total-distrito" href={`${base}/admin/resultados`}>Total del distrito ›</a></span>
       <span class="chips-estado" aria-live="polite">
         <span class="chip" id="por-confirmar" title="Los números de mesa de este distrito son de la segunda vuelta de junio. Revísalos y corrígelos en Colegios." hidden>
           N° por confirmar
@@ -77,6 +77,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   import { conectar, nubeActiva } from '../lib/nube';
 
   const CLAVE_SEL = 'conteo-votos:seleccion';
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
   const d = cargar();
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -87,6 +88,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const anterior = $<HTMLButtonElement>('anterior');
   const siguiente = $<HTMLButtonElement>('siguiente');
   const info = $('info');
+  const totalDistrito = $<HTMLAnchorElement>('total-distrito');
   const porConfirmar = $('por-confirmar');
   const chequeo = $('chequeo');
   const guardado = $('guardado');
@@ -222,6 +224,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     ]
       .filter(Boolean)
       .join(' · ');
+    // La suma de todas las mesas del distrito está en Resultados.
+    totalDistrito.hidden = !distrito;
+    if (distrito) {
+      totalDistrito.href = `${BASE}/admin/resultados?distrito=${encodeURIComponent(distrito.id)}`;
+      totalDistrito.title = `Suma de todas las mesas del distrito de ${distrito.nombre}`;
+    }
 
     // Con Supabase, el estado de guardado lo muestra la nube.
     guardado.className = ok ? 'chip' : 'chip error';

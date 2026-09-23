@@ -643,6 +643,19 @@ input[type='number']::-webkit-outer-spin-button {
   color: var(--muted);
 }
 
+/* Enlace del conteo a la suma de todas las mesas del distrito. */
+.enlace-total {
+  margin-left: 10px;
+  font-weight: 650;
+  color: var(--accent-text);
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.enlace-total:hover {
+  text-decoration: underline;
+}
+
 .chips-estado {
   display: flex;
   flex-wrap: wrap;
@@ -1104,6 +1117,141 @@ tr.lider .barra span {
   color: var(--faint);
 }
 
+/* Total por distrito: una columna por distrito y el total de la provincia. */
+.card-cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.card-cab .card-titulo {
+  margin-bottom: 0;
+}
+
+.segmentos {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.segmentos button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segmentos button:hover {
+  color: var(--text);
+}
+
+.segmentos button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.matriz-wrap {
+  margin: 0 -12px;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.matriz th:first-child,
+.matriz td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 170px;
+  padding-left: 12px;
+  background: var(--surface);
+  line-height: 1.15;
+}
+
+.matriz td.partido {
+  font-weight: 500;
+}
+
+.matriz .n {
+  width: auto;
+  min-width: 64px;
+}
+
+.matriz thead button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.matriz thead button:hover {
+  text-decoration: underline;
+}
+
+.matriz .col-total {
+  border-right: 1px solid var(--border);
+  font-weight: 700;
+}
+
+.matriz thead .col-total {
+  color: var(--text);
+}
+
+.matriz td.lider {
+  font-weight: 750;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.matriz tfoot .mesas th,
+.matriz tfoot .mesas td {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+#por-distrito .nota {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.solo-movil {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .matriz th:first-child,
+  .matriz td:first-child {
+    min-width: 128px;
+    max-width: 150px;
+  }
+
+  .matriz .n {
+    min-width: 54px;
+  }
+
+  .solo-movil {
+    display: inline;
+  }
+}
+
 .datos {
   display: flex;
   align-items: center;
@@ -1459,6 +1607,17 @@ tr.lider .barra span {
     right: 6px;
     width: auto;
     transform: translateY(-50%);
+  }
+
+  /* Dos enlaces: uno encima del otro. */
+  .tabla .acciones-fila.dos {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .tabla .acciones-fila.dos .link-fila {
+    height: 26px;
   }
 
   .tabla tbody tr:hover td {

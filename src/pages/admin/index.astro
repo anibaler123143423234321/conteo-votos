@@ -118,7 +118,10 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
             </div>
           </td>
           <td data-et="N° de mesa">${x.confirmado ? '<span class="chip ok">Del 4 de octubre</span>' : '<span class="chip warn">Por confirmar</span>'}</td>
-          <td class="acciones-fila"><a class="link-fila" href="${BASE}/admin/mesas?distrito=${encodeURIComponent(x.id)}">Ver mesas</a></td>
+          <td class="acciones-fila dos">
+            <a class="link-fila" href="${BASE}/admin/resultados?distrito=${encodeURIComponent(x.id)}">Ver total</a>
+            <a class="link-fila" href="${BASE}/admin/mesas?distrito=${encodeURIComponent(x.id)}">Ver mesas</a>
+          </td>
         </tr>`;
       })
       .join('');

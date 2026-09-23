@@ -4,7 +4,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
 <AdminLayout title="Resultados">
   <div class="cabecera">
-    <h1>Resultados</h1>
+    <h1 id="alcance">Resultados</h1>
     <button type="button" class="btn" id="csv">Descargar CSV (Excel)</button>
   </div>
 
@@ -36,6 +36,19 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
   <div class="columnas" id="resultados"></div>
 
+  <section class="card" id="por-distrito" aria-labelledby="por-distrito-titulo" hidden>
+    <div class="card-cab">
+      <h2 class="card-titulo" id="por-distrito-titulo">Total por distrito</h2>
+      <div class="segmentos" id="seg-columna" role="group" aria-label="Columna de la cédula"></div>
+    </div>
+    <div class="matriz-wrap">
+      <table class="tabla-res matriz" id="matriz"></table>
+    </div>
+    <p class="nota">
+      <span class="solo-movil">Desliza la tabla hacia los lados para ver todos los distritos.</span>
+      Toca el nombre de un distrito para ver solo su total, con porcentajes.
+    </p>
+  </section>
 </AdminLayout>
 
 <script>
@@ -55,13 +68,26 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     pct,
     resumen,
     votosDe,
+    type Aula,
+    type Colegio,
     type Datos,
+    type Distrito,
+    type Mesa,
   } from '../../lib/store';
   import { conectar } from '../../lib/nube';
 
   const d: Datos = cargar();
-  let f = { distrito: '', colegio: '', aula: '', mesa: '' };
+  // Se puede abrir filtrado: /admin/resultados?distrito=<id> (así llega desde el conteo).
+  const pedido = new URLSearchParams(location.search);
+  let f = {
+    distrito: pedido.get('distrito') ?? '',
+    colegio: pedido.get('colegio') ?? '',
+    aula: pedido.get('aula') ?? '',
+    mesa: pedido.get('mesa') ?? '',
+  };
   let tab = 0;
+  /** Columna que muestra la tabla "Total por distrito". */
+  let colMatriz = 0;
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const fDistrito = $<HTMLSelectElement>('f-distrito');
@@ -70,6 +96,95 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   const fMesa = $<HTMLSelectElement>('f-mesa');
   const tabs = $('tabs');
   const cont = $('resultados');
+  const porDistrito = $('por-distrito');
+  const segColumna = $('seg-columna');
+  const matriz = $('matriz');
+
+  /** Qué se está sumando, dicho con todas las letras. */
+  function alcance(distrito?: Distrito, colegio?: Colegio, aula?: Aula, mesa?: Mesa) {
+    if (mesa) return `Mesa ${mesa.numero}`;
+    if (aula) return /^aula\b/i.test(aula.nombre) ? `Total del ${aula.nombre}` : `Total del aula ${aula.nombre}`;
+    if (distrito && colegio) return `Total del colegio ${nombreColegio(distrito.colegios, colegio)}`;
+    if (distrito) return `Total del distrito de ${distrito.nombre}`;
+    return `Total de la provincia de ${d.provincia || 'Ferreñafe'}`;
+  }
+
+  /** Deja el filtro en la dirección, para poder compartir o recargar esa vista. */
+  function recordarFiltro() {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(f)) if (v) q.set(k, v);
+    const texto = q.toString();
+    history.replaceState(null, '', texto ? `?${texto}` : location.pathname);
+  }
+
+  /** Tabla con una columna por distrito y el total de la provincia (solo sin distrito elegido). */
+  function pintarPorDistrito(visible: boolean) {
+    const compartidas = d.columnas.filter((c) => !c.distrito);
+    porDistrito.hidden = !visible || !compartidas.length || !d.distritos.length;
+    if (porDistrito.hidden) return;
+    if (colMatriz >= compartidas.length) colMatriz = 0;
+    const col = compartidas[colMatriz];
+
+    segColumna.innerHTML = compartidas
+      .map(
+        (c, i) =>
+          `<button type="button" data-col="${i}" aria-pressed="${i === colMatriz}" title="${esc(c.titulo)}">${esc(c.corto || c.titulo)}</button>`,
+      )
+      .join('');
+
+    const grupo = (lista: Mesa[]) => ({
+      lista,
+      r: resumen(col, lista),
+      contadas: lista.filter((m) => mesaContada(d, m)).length,
+    });
+    const distritos = d.distritos.map((x) => ({ x, ...grupo(mesas(d, { distrito: x.id }).map((u) => u.mesa)) }));
+    const total = grupo(distritos.flatMap((g) => g.lista));
+    // El total va primero: en celular se ve sin deslizar la tabla.
+    const grupos = [total, ...distritos];
+    // El que va primero en cada distrito (y en el total) se resalta.
+    const primeros = grupos.map((g) => Math.max(0, ...g.r.filas.map((x) => x.votos)));
+    const orden = total.r.filas.map((x, i) => ({ ...x, i })).sort((a, b) => b.votos - a.votos || a.i - b.i);
+    const celda = (n: number, k: number, lider = false) =>
+      `<td class="n${k === 0 ? ' col-total' : ''}${lider ? ' lider' : ''}">${fmt(n)}</td>`;
+    const fila = (titulo: string, valor: (g: (typeof grupos)[number]) => number, clase = '') =>
+      `<tr${clase ? ` class="${clase}"` : ''}><th>${titulo}</th>${grupos.map((g, k) => celda(valor(g), k)).join('')}</tr>`;
+
+    matriz.innerHTML = `
+      <thead>
+        <tr>
+          <th>Partido</th>
+          <th class="n col-total">Total</th>
+          ${distritos
+            .map(
+              (g) =>
+                `<th class="n"><button type="button" data-distrito="${esc(g.x.id)}" title="Ver el total del distrito de ${esc(g.x.nombre)}">${esc(g.x.corto ?? g.x.nombre)}</button></th>`,
+            )
+            .join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${orden
+          .map(
+            (x) =>
+              `<tr><td class="partido">${esc(x.partido.nombre)}</td>${grupos
+                .map((g, k) => {
+                  const v = g.r.filas[x.i].votos;
+                  return celda(v, k, v > 0 && v === primeros[k]);
+                })
+                .join('')}</tr>`,
+          )
+          .join('')}
+      </tbody>
+      <tfoot>
+        ${fila('Votos válidos', (g) => g.r.validos)}
+        ${fila('Votos en blanco', (g) => g.r.blanco)}
+        ${fila('Votos nulos', (g) => g.r.nulo)}
+        ${fila('Total emitidos', (g) => g.r.emitidos, 'total')}
+        <tr class="mesas"><th>Mesas contadas</th>${grupos
+          .map((g, k) => `<td class="n${k === 0 ? ' col-total' : ''}">${fmt(g.contadas)}/${fmt(g.lista.length)}</td>`)
+          .join('')}</tr>
+      </tfoot>`;
+  }
 
   function pintar() {
     const distrito = d.distritos.find((x) => x.id === f.distrito);
@@ -77,6 +192,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     const aula = colegio?.aulas.find((x) => x.id === f.aula);
     const mesa = aula?.mesas.find((x) => x.id === f.mesa);
     f = { distrito: distrito?.id ?? '', colegio: colegio?.id ?? '', aula: aula?.id ?? '', mesa: mesa?.id ?? '' };
+    $('alcance').textContent = alcance(distrito, colegio, aula, mesa);
+    recordarFiltro();
 
     opciones(
       fDistrito,
@@ -163,6 +280,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
         </section>`;
       })
       .join('');
+
+    pintarPorDistrito(!distrito);
   }
 
   fDistrito.addEventListener('change', () => {
@@ -180,6 +299,21 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   fMesa.addEventListener('change', () => {
     f = { ...f, mesa: fMesa.value };
     pintar();
+  });
+
+  segColumna.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-col]');
+    if (!b) return;
+    colMatriz = Number(b.dataset.col);
+    pintarPorDistrito(true);
+  });
+
+  matriz.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-distrito]');
+    if (!b) return;
+    f = { distrito: b.dataset.distrito ?? '', colegio: '', aula: '', mesa: '' };
+    pintar();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
   tabs.addEventListener('click', (e) => {
