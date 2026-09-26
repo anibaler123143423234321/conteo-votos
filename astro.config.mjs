@@ -15,5 +15,6 @@ export default defineConfig({
     '/resultados': `${prefijo}/admin/resultados`,
     '/colegios': `${prefijo}/admin/colegios`,
     '/partidos': `${prefijo}/admin/partidos`,
+    '/admin/personeros': `${prefijo}/admin/usuarios`,
   },
 });

@@ -1,22 +1,22 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 
-// Los personeros solo existen con Supabase: cada uno entra con su propia cuenta.
+// Los usuarios solo existen con Supabase: cada uno entra con su propia cuenta.
 const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_ANON_KEY);
 ---
 
-<AdminLayout title="Personeros">
+<AdminLayout title="Usuarios">
   <div class="cabecera">
-    <h1>Personeros</h1>
-    {nube && <button type="button" class="btn primary" id="nuevo">+ Nuevo personero</button>}
+    <h1>Usuarios</h1>
+    {nube && <button type="button" class="btn primary" id="nuevo">+ Nuevo usuario</button>}
   </div>
 
   {
     nube ? (
       <section class="card">
         <p class="nota-card">
-          Cada personero entra con su correo y su contraseña, y <strong>solo puede anotar votos</strong>. Colegios, mesas,
-          partidos, resultados y esta lista son solo del administrador.
+          Los <strong>personeros</strong> solo anotan votos. Los <strong>administradores</strong> manejan todo: colegios,
+          mesas, partidos, resultados y esta lista. Cada uno entra con su correo y su contraseña.
         </p>
         <div class="barra-crud">
           <label class="campo ancho">
@@ -29,8 +29,9 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
           <table class="tabla">
             <thead>
               <tr>
-                <th>Personero</th>
+                <th>Nombre</th>
                 <th>Correo</th>
+                <th>Rol</th>
                 <th class="n">Mesas anotadas</th>
                 <th>Última vez</th>
                 <th>Acceso</th>
@@ -39,7 +40,7 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
             </thead>
             <tbody id="filas">
               <tr class="vacia">
-                <td colspan="6">Cargando…</td>
+                <td colspan="7">Cargando…</td>
               </tr>
             </tbody>
           </table>
@@ -48,7 +49,7 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
     ) : (
       <section class="card">
         <p class="nota-card">
-          Los personeros se crean cuando la web está conectada a Supabase: así cada uno entra con su propia cuenta y
+          Los usuarios se crean cuando la web está conectada a Supabase: así cada personero entra con su propia cuenta y
           anota votos desde su celular. Los pasos están en el README, en «Conectar con Supabase».
         </p>
       </section>
@@ -58,7 +59,7 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
   <dialog class="modal" id="dlg" aria-labelledby="dlg-titulo">
     <form id="form" novalidate>
       <header class="modal-head">
-        <h2 id="dlg-titulo">Nuevo personero</h2>
+        <h2 id="dlg-titulo">Nuevo usuario</h2>
         <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
       </header>
       <div class="modal-body">
@@ -71,7 +72,18 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
           <input class="control" name="correo" type="email" inputmode="email" autocomplete="off" placeholder="Ej.: juan@gmail.com" />
           <small data-modo="nuevo">Con este correo entra a la web. No se le manda ningún mensaje.</small>
         </label>
-        <div class="campo-v">
+        <fieldset class="campo-v roles" data-bloque="rol">
+          <legend>Rol</legend>
+          <label class="opcion-rol">
+            <input type="radio" name="rol" value="personero" checked />
+            <span><strong>Personero</strong><small>Solo anota los votos de las mesas.</small></span>
+          </label>
+          <label class="opcion-rol">
+            <input type="radio" name="rol" value="admin" />
+            <span><strong>Administrador</strong><small>Maneja todo: colegios, mesas, partidos, resultados y usuarios.</small></span>
+          </label>
+        </fieldset>
+        <div class="campo-v" data-bloque="clave">
           <label for="clave">
             <span data-modo="nuevo">Contraseña</span>
             <span data-modo="editar">Contraseña nueva <span class="opcional">(déjala vacía para no cambiarla)</span></span>
@@ -82,15 +94,22 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
           </div>
           <small>Al menos 6 caracteres. Al terminar te la muestro para que se la mandes.</small>
         </div>
-        <label class="check" data-modo="editar">
+        <p class="nota-card" data-bloque="clave-ajena" hidden>
+          Esta cuenta ya existía en este proyecto de Supabase (quizá de otra aplicación): entra con su contraseña de siempre
+          y no se cambia desde aquí.
+        </p>
+        <label class="check" data-bloque="activo">
           <input type="checkbox" name="activo" />
-          <span>Puede entrar y anotar votos</span>
+          <span>Puede entrar a la web</span>
         </label>
+        <p class="nota-card" data-bloque="soy-yo" hidden>
+          Es tu cuenta: tu rol y tu acceso solo los puede cambiar otro administrador.
+        </p>
         <p class="error" id="dlg-error" role="alert" hidden></p>
       </div>
       <footer class="modal-pie">
         <button type="button" class="btn" data-cerrar>Cancelar</button>
-        <button type="submit" class="btn primary" id="guardar">Crear personero</button>
+        <button type="submit" class="btn primary" id="guardar">Crear usuario</button>
       </footer>
     </form>
   </dialog>
@@ -98,7 +117,7 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
   <dialog class="modal" id="dlg-listo" aria-labelledby="listo-titulo">
     <div>
       <header class="modal-head">
-        <h2 id="listo-titulo">Personero creado</h2>
+        <h2 id="listo-titulo">Usuario creado</h2>
         <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
       </header>
       <div class="modal-body">
@@ -117,14 +136,16 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
 <script>
   import { ICONO_EDITAR } from '../../lib/iconos';
   import { cargar, esc, fmt } from '../../lib/store';
-  import { alRol, conectar, nubeActiva } from '../../lib/nube';
+  import { alRol, conectar, nubeActiva, type Rol } from '../../lib/nube';
   import {
     actividad,
     cambiarClave,
     cambiarDatos,
+    cambiarMiClave,
     claveNueva,
-    crearPersonero,
+    crearUsuario,
     listarUsuarios,
+    miId,
     type Actividad,
     type Usuario,
   } from '../../lib/usuarios';
@@ -142,11 +163,16 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
     const guardarBtn = $<HTMLButtonElement>('guardar');
     const listo = $<HTMLDialogElement>('dlg-listo');
     const campo = (nombre: string) => form.elements.namedItem(nombre) as HTMLInputElement;
+    const bloque = (nombre: string) => form.querySelector<HTMLElement>(`[data-bloque="${nombre}"]`)!;
+    const rolElegido = () => (form.querySelector<HTMLInputElement>('input[name=rol]:checked')?.value ?? 'personero') as Rol;
+    const ponerRolElegido = (rol: Rol) =>
+      form.querySelectorAll<HTMLInputElement>('input[name=rol]').forEach((r) => (r.checked = r.value === rol));
 
     let usuarios: Usuario[] = [];
     let hechos = new Map<string, Actividad>();
+    let yo: string | undefined;
     let cargada = false;
-    /** Personero que se está editando (o null si es uno nuevo). */
+    /** Usuario que se está editando (o null si es uno nuevo). */
     let editando: Usuario | null = null;
 
     const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -155,55 +181,52 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       iso
         ? new Date(iso).toLocaleString('es-PE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
         : '—';
+    const plural = (n: number, uno: string, varios: string) => `${fmt(n)} ${n === 1 ? uno : varios}`;
+    /** ¿Se le puede cambiar la contraseña desde aquí? (la propia, siempre) */
+    const claveEditable = (u: Usuario) => u.id === yo || u.creada_por_conteo !== false;
 
     function pintar() {
       if (!cargada) return;
       const q = sinTildes(buscar.value.trim());
       const lista = usuarios.filter((u) => !q || sinTildes(u.nombre).includes(q) || u.correo.includes(q));
       const personeros = usuarios.filter((u) => u.rol === 'personero').length;
-      $('cuenta').textContent = `${fmt(personeros)} ${personeros === 1 ? 'personero' : 'personeros'}`;
+      const admins = usuarios.length - personeros;
+      $('cuenta').textContent = `${plural(personeros, 'personero', 'personeros')} · ${plural(admins, 'administrador', 'administradores')}`;
       filas.innerHTML = lista.length
         ? lista
             .map((u) => {
               const h = hechos.get(u.id);
               const nombre = u.nombre || u.correo;
-              const acceso =
-                u.rol === 'admin'
-                  ? '<span class="chip">Administrador</span>'
-                  : u.activo
-                    ? '<span class="chip ok">Puede anotar</span>'
-                    : '<span class="chip warn">Sin acceso</span>';
+              const rol = u.rol === 'admin' ? '<span class="chip rol-admin">Administrador</span>' : '<span class="chip">Personero</span>';
+              const acceso = u.activo ? '<span class="chip ok">Activo</span>' : '<span class="chip warn">Sin acceso</span>';
               return `
             <tr data-u="${esc(u.id)}">
-              <td class="principal">${esc(nombre)}</td>
+              <td class="principal">${esc(nombre)}${u.id === yo ? ' <span class="muted">(tú)</span>' : ''}</td>
               <td data-et="Correo">${esc(u.correo)}</td>
+              <td data-et="Rol">${rol}</td>
               <td class="n" data-et="Mesas anotadas">${fmt(h?.mesas ?? 0)}</td>
               <td data-et="Última vez">${cuando(h?.ultima)}</td>
               <td data-et="Acceso">${acceso}</td>
-              <td class="acciones-fila">${
-                u.rol === 'admin'
-                  ? ''
-                  : `<button type="button" class="icon-btn" data-accion="editar" aria-label="Editar a ${esc(nombre)}" title="Editar">${ICONO_EDITAR}</button>`
-              }</td>
+              <td class="acciones-fila"><button type="button" class="icon-btn" data-accion="editar" aria-label="Editar a ${esc(nombre)}" title="Editar">${ICONO_EDITAR}</button></td>
             </tr>`;
             })
             .join('')
-        : `<tr class="vacia"><td colspan="6">${
-            q ? 'Nadie coincide con la búsqueda.' : 'Todavía no hay personeros. Crea el primero con «+ Nuevo personero».'
+        : `<tr class="vacia"><td colspan="7">${
+            q ? 'Nadie coincide con la búsqueda.' : 'Todavía no hay usuarios. Crea el primero con «+ Nuevo usuario».'
           }</td></tr>`;
     }
 
     async function recargar() {
       try {
-        [usuarios, hechos] = await Promise.all([listarUsuarios(), actividad()]);
-        // Primero el administrador; después los personeros por nombre.
+        [usuarios, hechos, yo] = await Promise.all([listarUsuarios(), actividad(), miId()]);
+        // Primero los administradores; después los personeros, por nombre.
         usuarios.sort((a, b) =>
           a.rol === b.rol ? (a.nombre || a.correo).localeCompare(b.nombre || b.correo, 'es') : a.rol === 'admin' ? -1 : 1,
         );
         cargada = true;
         pintar();
       } catch (e) {
-        filas.innerHTML = `<tr class="vacia"><td colspan="6">No se pudo cargar la lista: ${esc(mensaje(e))}</td></tr>`;
+        filas.innerHTML = `<tr class="vacia"><td colspan="7">No se pudo cargar la lista: ${esc(mensaje(e))}</td></tr>`;
       }
     }
 
@@ -222,23 +245,34 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       form.reset();
       dlgError.hidden = true;
       const modo = u ? 'editar' : 'nuevo';
+      const soyYo = !!u && u.id === yo;
       form.querySelectorAll<HTMLElement>('[data-modo]').forEach((el) => (el.hidden = el.dataset.modo !== modo));
-      $('dlg-titulo').textContent = u ? `Editar a ${u.nombre || u.correo}` : 'Nuevo personero';
+      $('dlg-titulo').textContent = u ? `Editar a ${u.nombre || u.correo}` : 'Nuevo usuario';
       campo('nombre').value = u?.nombre ?? '';
       campo('correo').value = u?.correo ?? '';
       // El correo es la cuenta: no se cambia.
       campo('correo').readOnly = !!u;
+      ponerRolElegido(u?.rol ?? 'personero');
       campo('clave').value = u ? '' : claveNueva();
       campo('activo').checked = u?.activo ?? true;
-      ocupado(false, u ? 'Guardar' : 'Crear personero');
+      // A uno mismo no se le cambia el rol ni el acceso (así nunca queda sin administrador).
+      bloque('rol').hidden = soyYo;
+      bloque('activo').hidden = !u || soyYo;
+      bloque('soy-yo').hidden = !soyYo;
+      bloque('clave').hidden = !!u && !claveEditable(u);
+      bloque('clave-ajena').hidden = !u || claveEditable(u);
+      ocupado(false, u ? 'Guardar' : 'Crear usuario');
       dlg.showModal();
       campo('nombre').focus();
     }
 
-    function mostrarListo(titulo: string, nombre: string, correo: string, clave: string, aviso?: string) {
+    function mostrarListo(titulo: string, nombre: string, correo: string, clave: string, rol: Rol, aviso?: string) {
       const datos = `Conteo de votos · Ferreñafe\n${location.origin}${BASE}/\nCorreo: ${correo}\nContraseña: ${clave}`;
       $('listo-titulo').textContent = titulo;
-      $('listo-texto').textContent = `${nombre} ya puede entrar con estos datos. Mándaselos:`;
+      $('listo-texto').textContent =
+        `${nombre} ya puede entrar con estos datos` +
+        (rol === 'admin' ? ' y, como administrador, verá el botón «Administración».' : '.') +
+        ' Mándaselos:';
       $('listo-datos').textContent = datos;
       $('listo-aviso').textContent = aviso ?? '';
       $('listo-aviso').hidden = !aviso;
@@ -247,26 +281,40 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       listo.showModal();
     }
 
+    const avisoAdmin = (nombre: string) =>
+      confirm(
+        `¿Hacer administrador a ${nombre}? Podrá cambiar colegios, mesas y partidos, ver los resultados y crear o quitar usuarios.`,
+      );
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const u = editando;
       const nombre = campo('nombre').value.trim().replace(/\s+/g, ' ');
       const correo = campo('correo').value.trim().toLowerCase();
       const clave = campo('clave').value.trim();
-      if (!nombre) return error('Escribe el nombre del personero.');
+      const rol = rolElegido();
+      if (!nombre) return error('Escribe el nombre.');
       if ((clave || !u) && clave.length < 6) return error('La contraseña debe tener al menos 6 caracteres.');
 
       if (u) {
-        const activo = campo('activo').checked;
+        const soyYo = u.id === yo;
+        const activo = soyYo ? u.activo : campo('activo').checked;
+        const rolNuevo = soyYo ? u.rol : rol;
+        if (rolNuevo === 'admin' && u.rol !== 'admin' && !avisoAdmin(nombre)) return;
+        const cambios: { nombre?: string; activo?: boolean; rol?: Rol } = {};
+        if (nombre !== u.nombre) cambios.nombre = nombre;
+        if (activo !== u.activo) cambios.activo = activo;
+        if (rolNuevo !== u.rol) cambios.rol = rolNuevo;
         ocupado(true, 'Guardando…');
         let problema: string | null = null;
-        if (nombre !== u.nombre || activo !== u.activo) problema = await cambiarDatos(u.id, { nombre, activo });
-        if (!problema && clave) problema = await cambiarClave(u.id, clave);
+        if (Object.keys(cambios).length) problema = await cambiarDatos(u.id, cambios);
+        if (!problema && clave) problema = soyYo ? await cambiarMiClave(clave) : await cambiarClave(u.id, clave);
         ocupado(false, 'Guardar');
         if (problema) return error(problema);
         dlg.close();
         await recargar();
-        if (clave) mostrarListo('Contraseña cambiada', nombre, u.correo, clave);
+        if (clave && !soyYo) mostrarListo('Contraseña cambiada', nombre, u.correo, clave, rolNuevo);
+        else if (clave) alert('Listo: tu contraseña cambió. Úsala la próxima vez que entres.');
         return;
       }
 
@@ -274,20 +322,19 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       const existente = usuarios.find((x) => x.correo.toLowerCase() === correo);
       if (existente) {
         return error(
-          existente.rol === 'admin'
-            ? 'Ese es el correo del administrador.'
-            : existente.activo
-              ? 'Ese personero ya está en la lista.'
-              : 'Ese personero ya está en la lista, sin acceso: edítalo para devolvérselo.',
+          existente.activo
+            ? 'Esa persona ya está en la lista.'
+            : 'Esa persona ya está en la lista, sin acceso: edítala para devolvérselo.',
         );
       }
+      if (rol === 'admin' && !avisoAdmin(nombre)) return;
       ocupado(true, 'Creando…');
-      const r = await crearPersonero(nombre, correo, clave);
-      ocupado(false, 'Crear personero');
+      const r = await crearUsuario(nombre, correo, clave, rol);
+      ocupado(false, 'Crear usuario');
       if (r.error) return error(r.error);
       dlg.close();
       await recargar();
-      mostrarListo('Personero creado', nombre, correo, clave, r.aviso);
+      mostrarListo(rol === 'admin' ? 'Administrador creado' : 'Personero creado', nombre, correo, clave, rol, r.aviso);
     });
 
     filas.addEventListener('click', (e) => {

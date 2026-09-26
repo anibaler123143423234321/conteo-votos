@@ -1749,7 +1749,57 @@ select.control {
   opacity: 0.6;
 }
 
-/* Personeros */
+/* Usuarios */
+.chip.rol-admin {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.roles {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.roles legend {
+  margin-bottom: 5px;
+  padding: 0;
+}
+
+.opcion-rol {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.opcion-rol:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.opcion-rol input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.opcion-rol span {
+  display: grid;
+  gap: 1px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.opcion-rol small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .nota-card {
   margin-bottom: 10px;
   font-size: 12.5px;

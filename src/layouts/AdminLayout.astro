@@ -9,7 +9,7 @@ interface Props {
 const { title } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const actual = Astro.url.pathname.slice(base.length).replace(/\/$/, '') || '/';
-// Los personeros solo existen con Supabase (cada uno entra con su cuenta).
+// Los usuarios solo existen con Supabase (cada uno entra con su cuenta).
 const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_ANON_KEY);
 
 // Íconos de trazo simple (24×24).
@@ -29,7 +29,7 @@ const enlaces = [
   { href: '/admin/colegios', texto: 'Colegios', icono: iconos.colegios },
   { href: '/admin/mesas', texto: 'Mesas', icono: iconos.mesas },
   { href: '/admin/partidos', texto: 'Partidos', icono: iconos.partidos },
-  ...(nube ? [{ href: '/admin/personeros', texto: 'Personeros', icono: iconos.personeros }] : []),
+  ...(nube ? [{ href: '/admin/usuarios', texto: 'Usuarios', icono: iconos.personeros }] : []),
 ];
 ---
 

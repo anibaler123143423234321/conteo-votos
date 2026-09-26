@@ -121,9 +121,9 @@ create trigger votos_mesa_tocar
   for each row execute function public.tocar_votos();
 
 -- ================= Quién puede entrar =================
--- Un administrador lo maneja todo y crea a los personeros desde la web
--- (Administración › Personeros); los personeros solo anotan votos. Una cuenta que no está
--- en esta tabla, o que está sin acceso, no ve ni cambia nada aunque inicie sesión.
+-- Los administradores lo manejan todo y crean a los demás desde la web (Administración ›
+-- Usuarios); los personeros solo anotan votos. Una cuenta que no está en esta tabla, o que
+-- está sin acceso, no ve ni cambia nada aunque inicie sesión.
 create table if not exists public.conteo_usuarios (
   id uuid primary key references auth.users (id) on delete cascade,
   correo text not null,
@@ -132,6 +132,21 @@ create table if not exists public.conteo_usuarios (
   activo boolean not null default true,
   creado timestamptz not null default now()
 );
+
+-- ¿La cuenta la creó el conteo? Solo a esas se les cambia la contraseña desde la web: así un
+-- administrador del conteo no puede quedarse con cuentas de otra aplicación del mismo proyecto.
+alter table public.conteo_usuarios add column if not exists creada_por_conteo boolean not null default false;
+
+-- Personeros creados desde la web antes de que existiera esa columna: su cuenta se creó junto
+-- con su fila (y solo tiene correo).
+update public.conteo_usuarios c
+set creada_por_conteo = true
+from auth.users u
+where u.id = c.id
+  and c.rol = 'personero'
+  and not c.creada_por_conteo
+  and coalesce(u.raw_app_meta_data -> 'providers', '["email"]'::jsonb) = '["email"]'::jsonb
+  and abs(extract(epoch from (c.creado - u.created_at))) < 600;
 
 -- Rol de quien hace el pedido: 'admin', 'personero' o null (sin acceso).
 create or replace function public.conteo_rol() returns text
@@ -175,32 +190,69 @@ create policy "leer" on public.conteo_usuarios for select to authenticated
 create policy "escribir" on public.conteo_usuarios for all to authenticated
   using ((select public.conteo_rol()) = 'admin') with check ((select public.conteo_rol()) = 'admin');
 
--- El administrador da acceso de personero a una cuenta, buscándola por su correo. La web la usa
--- justo después de crear la cuenta; también sirve para devolverle el acceso a alguien.
-create or replace function public.conteo_dar_acceso(correo_personero text, nombre_personero text default '')
+-- Siempre tiene que quedar al menos un administrador con acceso (si no, nadie podría entrar
+-- a Administración): se revisa cuando a un administrador activo se le quita el rol o el acceso.
+create or replace function public.conteo_queda_admin() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if old.rol = 'admin' and old.activo and not (new.rol = 'admin' and new.activo)
+     and not exists (select 1 from public.conteo_usuarios x where x.rol = 'admin' and x.activo and x.id <> new.id) then
+    raise exception 'Tiene que quedar al menos un administrador con acceso.' using errcode = 'P0001';
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists conteo_usuarios_queda_admin on public.conteo_usuarios;
+create trigger conteo_usuarios_queda_admin
+  after update on public.conteo_usuarios
+  for each row execute function public.conteo_queda_admin();
+
+-- El administrador da acceso (de personero o de administrador) a una cuenta, buscándola por su
+-- correo. La web la usa justo después de crear la cuenta; también sirve para devolverle el
+-- acceso a alguien. Nunca le quita a nadie el rol de administrador.
+drop function if exists public.conteo_dar_acceso(text, text);
+create or replace function public.conteo_dar_acceso(
+  correo_personero text,
+  nombre_personero text default '',
+  rol_nuevo text default 'personero'
+)
 returns uuid
 language plpgsql security definer set search_path = ''
 as $$
 declare
   cuenta uuid;
+  proveedores jsonb;
+  creada timestamptz;
 begin
   if (select public.conteo_rol()) is distinct from 'admin' then
     raise exception 'Solo el administrador puede dar acceso.' using errcode = '42501';
   end if;
-  select u.id into cuenta from auth.users u where lower(u.email) = lower(trim(correo_personero));
+  if rol_nuevo is null or rol_nuevo not in ('admin', 'personero') then
+    raise exception 'El rol tiene que ser admin o personero.' using errcode = '22023';
+  end if;
+  select u.id, u.raw_app_meta_data -> 'providers', u.created_at into cuenta, proveedores, creada
+  from auth.users u where lower(u.email) = lower(trim(correo_personero));
   if cuenta is null then
     raise exception 'No hay ninguna cuenta con el correo %.', correo_personero using errcode = 'P0002';
   end if;
-  insert into public.conteo_usuarios (id, correo, nombre, rol, activo)
-  values (cuenta, lower(trim(correo_personero)), coalesce(trim(nombre_personero), ''), 'personero', true)
+  insert into public.conteo_usuarios (id, correo, nombre, rol, activo, creada_por_conteo)
+  values (
+    cuenta, lower(trim(correo_personero)), coalesce(trim(nombre_personero), ''), rol_nuevo, true,
+    -- Recién creada desde la web y solo con correo: su contraseña la maneja el conteo.
+    coalesce(proveedores, '["email"]'::jsonb) = '["email"]'::jsonb and creada > now() - interval '10 minutes'
+  )
   on conflict (id) do update
     set activo = true,
-        nombre = case when excluded.nombre <> '' then excluded.nombre else public.conteo_usuarios.nombre end;
+        nombre = case when excluded.nombre <> '' then excluded.nombre else public.conteo_usuarios.nombre end,
+        rol = case when excluded.rol = 'admin' then 'admin' else public.conteo_usuarios.rol end;
   return cuenta;
 end;
 $$;
 
--- El administrador le pone una contraseña nueva a un personero (por si la olvidó).
+-- El administrador le pone una contraseña nueva a alguien del conteo (por si la olvidó). Solo a
+-- cuentas que creó el conteo: las que ya existían (quizá de otra aplicación) no se tocan.
 create or replace function public.conteo_cambiar_clave(personero uuid, clave text)
 returns void
 language plpgsql security definer set search_path = ''
@@ -212,13 +264,16 @@ begin
   if length(coalesce(clave, '')) < 6 then
     raise exception 'La contraseña debe tener al menos 6 caracteres.' using errcode = '22023';
   end if;
+  if not exists (select 1 from public.conteo_usuarios x where x.id = personero) then
+    raise exception 'Esa cuenta no está en el conteo.' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from public.conteo_usuarios x where x.id = personero and x.creada_por_conteo) then
+    raise exception 'La contraseña de esta cuenta no se cambia desde aquí: la cuenta ya existía (quizá es de otra aplicación). Esa persona entra con su contraseña de siempre.'
+      using errcode = 'P0001';
+  end if;
   update auth.users
     set encrypted_password = extensions.crypt(clave, extensions.gen_salt('bf', 10)), updated_at = now()
-    where id = personero
-      and exists (select 1 from public.conteo_usuarios x where x.id = personero and x.rol = 'personero');
-  if not found then
-    raise exception 'No se encontró ese personero.' using errcode = 'P0002';
-  end if;
+    where id = personero;
 end;
 $$;
 
@@ -247,11 +302,12 @@ $$;
 
 -- Nadie las llama sin sesión; conteo_hacer_admin tampoco se puede llamar desde la web.
 revoke execute on function public.conteo_rol() from public, anon;
-revoke execute on function public.conteo_dar_acceso(text, text) from public, anon;
+revoke execute on function public.conteo_dar_acceso(text, text, text) from public, anon;
 revoke execute on function public.conteo_cambiar_clave(uuid, text) from public, anon;
 revoke execute on function public.conteo_hacer_admin(text) from public, anon, authenticated;
+revoke execute on function public.conteo_queda_admin() from public, anon, authenticated;
 grant execute on function public.conteo_rol() to authenticated;
-grant execute on function public.conteo_dar_acceso(text, text) to authenticated;
+grant execute on function public.conteo_dar_acceso(text, text, text) to authenticated;
 grant execute on function public.conteo_cambiar_clave(uuid, text) to authenticated;
 
 -- Tiempo real: las pantallas de Resumen y Resultados se actualizan solas.
@@ -276,4 +332,4 @@ $$;
 --      select public.conteo_hacer_admin('tu-correo@gmail.com');
 --
 --    Tiene que responder «Listo: … es el administrador».
--- Los personeros los creas después desde la web: Administración › Personeros.
+-- Los personeros (y otros administradores) los creas después desde la web: Administración › Usuarios.

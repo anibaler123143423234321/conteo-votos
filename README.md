@@ -27,7 +27,7 @@ que mandan a Administración solo los ve el administrador; el personero ve solo 
 | `/admin/colegios` | CRUD de colegios: crear (con cantidad de aulas y mesas), editar, eliminar, buscar. |
 | `/admin/mesas` | CRUD de mesas: crear, editar (número, aula, electores), eliminar, ir a contarla. |
 | `/admin/partidos` | CRUD de partidos por columna de la cédula: crear, editar, ordenar, eliminar. |
-| `/admin/personeros` | Solo con Supabase: crear personeros, cambiarles la contraseña, quitarles o devolverles el acceso y ver cuántas mesas anotó cada uno. |
+| `/admin/usuarios` | Solo con Supabase: crear personeros y administradores, cambiarles el rol o la contraseña, quitarles o devolverles el acceso y ver cuántas mesas anotó cada uno. |
 
 Las rutas viejas (`/resultados`, `/colegios`, `/partidos`) redirigen a las nuevas.
 
@@ -63,16 +63,19 @@ Con Supabase, todos ven y guardan en la misma base de datos, cada mesa se guarda
 separado (dos personas contando mesas distintas no se pisan), lo que se anota sin internet
 se sube al volver la conexión, y Resumen y Resultados se actualizan solos.
 
-Hay **un administrador**, que maneja todo y crea a los personeros desde la web. Los
-**personeros** solo anotan votos: no ven Administración ni pueden cambiar colegios, mesas o
-partidos. Una cuenta que no creó el administrador no ve nada. Esto lo hace cumplir Supabase
-(las políticas de `esquema.sql`), no solo la web.
+Los **administradores** manejan todo y crean a los demás desde la web (**Administración →
+Usuarios**), eligiendo el rol: personero o administrador. Los **personeros** solo anotan
+votos: no ven Administración ni pueden cambiar colegios, mesas o partidos. Una cuenta que no
+está en esa lista no ve nada. Siempre queda al menos un administrador con acceso, y nadie se
+puede quitar a sí mismo el rol. Esto lo hace cumplir Supabase (`esquema.sql`), no solo la web.
 
 Se puede usar un proyecto de Supabase que ya tiene otra aplicación: lo nuevo se llama
 `conteo_…` y `esquema.sql` revisa antes que sus tablas no choquen con las de la otra
 aplicación (si chocan, se detiene sin cambiar nada). Pero las cuentas de los personeros
 quedan en ese mismo proyecto: si la otra aplicación deja entrar a cualquier cuenta, también
-podrían entrar ahí. Lo más limpio es un proyecto solo para el conteo.
+podrían entrar ahí. Lo más limpio es un proyecto solo para el conteo. Por lo mismo, la web
+solo cambia contraseñas de cuentas que creó el conteo: si alguien ya tenía cuenta en el
+proyecto, recibe acceso pero entra con su contraseña de siempre.
 
 1. Crea un proyecto en [supabase.com](https://supabase.com) (el plan gratis alcanza).
 2. **Authentication → Users → Add user → Create new user**: crea **tu** cuenta de
@@ -110,9 +113,10 @@ podrían entrar ahí. Lo más limpio es un proyecto solo para el conteo.
    - **En tu computadora**: copia `.env.example` como `.env` y complétalo.
 8. Entra a la web con tu cuenta, ve a **Administración → Resumen** y pulsa **Subir datos a
    Supabase** (solo la primera vez).
-9. **Administración → Personeros → + Nuevo personero**: nombre, correo y contraseña (la web
-   propone una fácil de dictar). Al crearlo te muestra los datos para copiarlos o mandarlos
-   por WhatsApp. Ahí mismo les cambias la contraseña o les quitas el acceso.
+9. **Administración → Usuarios → + Nuevo usuario**: nombre, correo, rol (**Personero** o
+   **Administrador**) y contraseña (la web propone una fácil de dictar). Al crearlo te muestra
+   los datos para copiarlos o mandarlos por WhatsApp. Ahí mismo les cambias el rol o la
+   contraseña, o les quitas el acceso. En tu propia fila puedes cambiar tu contraseña.
 
 ## Comandos
 
