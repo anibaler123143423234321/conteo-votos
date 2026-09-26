@@ -110,7 +110,10 @@ export async function darAcceso(correo: string, nombre = '', rol: Rol = 'persone
   if (rol !== 'personero') args.rol_nuevo = rol;
   const { data, error } = await (await cliente()).rpc('conteo_dar_acceso', args);
   if (error && rol === 'admin' && /rol_nuevo|could not find/i.test(error.message))
-    return { error: 'Para crear administradores desde aquí, vuelve a correr supabase/esquema.sql en Supabase (la versión nueva).' };
+    return {
+      error:
+        'Para crear administradores hay que actualizar Supabase: en Administración › Resumen pulsa «Copiar SQL de Supabase» y córrelo en Supabase › SQL Editor.',
+    };
   return error ? { error: texto(error) } : { id: String(data) };
 }
 

@@ -300,12 +300,19 @@ begin
 end;
 $$;
 
+-- Versión de este archivo. La web la compara con la suya y, si la de Supabase es más vieja,
+-- avisa en Administración › Resumen que hay que volver a correrlo (con un botón para copiarlo).
+create or replace function public.conteo_version() returns int
+language sql immutable as $$ select 3 $$;
+
 -- Nadie las llama sin sesión; conteo_hacer_admin tampoco se puede llamar desde la web.
 revoke execute on function public.conteo_rol() from public, anon;
 revoke execute on function public.conteo_dar_acceso(text, text, text) from public, anon;
 revoke execute on function public.conteo_cambiar_clave(uuid, text) from public, anon;
 revoke execute on function public.conteo_hacer_admin(text) from public, anon, authenticated;
 revoke execute on function public.conteo_queda_admin() from public, anon, authenticated;
+revoke execute on function public.conteo_version() from public, anon;
+grant execute on function public.conteo_version() to authenticated;
 grant execute on function public.conteo_rol() to authenticated;
 grant execute on function public.conteo_dar_acceso(text, text, text) to authenticated;
 grant execute on function public.conteo_cambiar_clave(uuid, text) to authenticated;
