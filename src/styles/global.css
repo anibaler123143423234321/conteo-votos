@@ -1749,26 +1749,6 @@ select.control {
   opacity: 0.6;
 }
 
-/* Aviso para actualizar Supabase */
-.aviso-card {
-  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
-  background: var(--warn-soft);
-}
-
-.aviso-card code,
-.sql-texto {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.sql-texto {
-  width: 100%;
-  min-height: 220px;
-  font-size: 12px;
-  line-height: 1.4;
-  white-space: pre;
-  resize: vertical;
-}
-
 /* Usuarios */
 .chip.rol-admin {
   background: var(--accent-soft);

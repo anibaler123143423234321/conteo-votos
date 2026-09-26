@@ -1,7 +1,5 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-
-const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_ANON_KEY);
 ---
 
 <AdminLayout title="Resumen">
@@ -9,15 +7,6 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
     <h1>Resumen</h1>
     <span class="muted">Provincia de Ferreñafe · Elecciones Regionales y Municipales 2026</span>
   </div>
-
-  <section class="card datos aviso-card" id="actualizar" hidden>
-    <p>
-      <strong>Hay que actualizar Supabase.</strong> Esta versión de la web necesita la versión nueva
-      de <code>esquema.sql</code>. Cópiala con el botón, pégala en Supabase › SQL Editor › New query y dale Run.
-      No se pierde nada de lo que ya está.
-    </p>
-    <button type="button" class="btn primary" data-copiar-sql>Copiar SQL de Supabase</button>
-  </section>
 
   <section class="card datos" id="nube-vacia" hidden>
     <p>
@@ -60,29 +49,8 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
       <input type="file" id="archivo" accept=".json,application/json" hidden />
       <button type="button" class="btn danger" id="borrar-votos">Borrar votos</button>
       <button type="button" class="btn danger" id="borrar-todo">Borrar todo</button>
-      {nube && <button type="button" class="btn" data-copiar-sql>Copiar SQL de Supabase</button>}
     </div>
   </section>
-
-  <!-- Si el navegador no deja copiar solo: el SQL queda seleccionado para copiarlo a mano. -->
-  <dialog class="modal" id="dlg-sql" aria-labelledby="dlg-sql-titulo">
-    <div>
-      <header class="modal-head">
-        <h2 id="dlg-sql-titulo">SQL de Supabase</h2>
-        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">✕</button>
-      </header>
-      <div class="modal-body">
-        <p class="nota-card">
-          El navegador no dejó copiarlo solo. Ya está seleccionado: cópialo con Ctrl+C (en celular, «Copiar») y pégalo
-          en Supabase › SQL Editor › New query.
-        </p>
-        <textarea class="control sql-texto" id="sql-texto" readonly rows="12" spellcheck="false"></textarea>
-      </div>
-      <footer class="modal-pie">
-        <button type="button" class="btn primary" data-cerrar>Listo</button>
-      </footer>
-    </div>
-  </dialog>
 </AdminLayout>
 
 <script>
@@ -100,7 +68,7 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
     pct,
     type Datos,
   } from '../../lib/store';
-  import { alEstado, alRol, conectar, nubeActiva, sembrar } from '../../lib/nube';
+  import { alEstado, conectar, nubeActiva, sembrar } from '../../lib/nube';
 
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
   const d: Datos = cargar();
@@ -207,38 +175,6 @@ const nube = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBL
     await sembrar(d);
     pintar();
   });
-
-  // ---------- SQL de Supabase: copiarlo y avisar si hay que actualizarlo ----------
-  if (nubeActiva) {
-    const dlgSql = $<HTMLDialogElement>('dlg-sql');
-    const sqlTexto = $<HTMLTextAreaElement>('sql-texto');
-    dlgSql.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', () => dlgSql.close()));
-
-    document.querySelectorAll<HTMLButtonElement>('[data-copiar-sql]').forEach((boton) => {
-      const texto = boton.textContent;
-      boton.addEventListener('click', async () => {
-        const { copiarEsquema, SQL_ESQUEMA, LINEAS_ESQUEMA } = await import('../../lib/esquema');
-        if (await copiarEsquema()) {
-          boton.textContent = `✓ Copiado (${LINEAS_ESQUEMA} líneas): pégalo en Supabase`;
-          setTimeout(() => (boton.textContent = texto), 6000);
-          return;
-        }
-        sqlTexto.value = SQL_ESQUEMA;
-        dlgSql.showModal();
-        sqlTexto.focus();
-        sqlTexto.select();
-      });
-    });
-
-    let revisada = false;
-    alRol(async (rol) => {
-      if (rol !== 'admin' || revisada) return;
-      revisada = true;
-      const { versionEnSupabase, VERSION_ESQUEMA } = await import('../../lib/esquema');
-      const instalada = await versionEnSupabase().catch(() => null);
-      $('actualizar').hidden = instalada === null || instalada >= VERSION_ESQUEMA;
-    });
-  }
 
   pintar();
   conectar(d, pintar, { enVivo: true });

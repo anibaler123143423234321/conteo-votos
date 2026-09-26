@@ -86,9 +86,7 @@ proyecto, recibe acceso pero entra con su contraseña de siempre.
    cuenta no puede ver ni cambiar nada.
 4. **SQL Editor → New query**: pega todo [`supabase/esquema.sql`](supabase/esquema.sql) y
    dale **Run**. Si ya habías corrido una versión anterior, córrelo igual: se actualiza sin
-   perder datos. Con la web ya conectada, el SQL se copia desde **Administración → Resumen →
-   Copiar SQL de Supabase**, y Resumen avisa «Hay que actualizar Supabase» cuando la web
-   necesita una versión nueva.
+   perder datos.
 5. **SQL Editor → New query**: corre esta línea con **tu** correo:
 
    ```sql
