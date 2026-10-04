@@ -1961,6 +1961,61 @@ select.control {
   border-bottom: 1px solid var(--border);
 }
 
+.dash-pills-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 10px;
+  margin-top: -6px;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.dash-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.dash-pill-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.dash-pill-btn[aria-selected='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--ring);
+}
+
+.dash-pill-btn .pill-n {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.dash-pill-btn[aria-selected='true'] .pill-n {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
 .dash-titulo-wrap {
   display: flex;
   align-items: center;

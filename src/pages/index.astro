@@ -224,13 +224,51 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     return Number(confirmados?.[colId]?.[partidoId] ?? 0);
   }
 
+  function obtenerBorradorMesa(mesaId: string): Record<string, Record<string, number>> {
+    try {
+      const raw = localStorage.getItem(`conteo-votos:borrador:${mesaId}`);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
+  }
+
+  function guardarBorradorMesa(mesaId: string, b: Record<string, Record<string, number>>) {
+    try {
+      localStorage.setItem(`conteo-votos:borrador:${mesaId}`, JSON.stringify(b));
+    } catch {}
+  }
+
+  function limpiarBorradorMesa(mesaId: string) {
+    try {
+      localStorage.removeItem(`conteo-votos:borrador:${mesaId}`);
+    } catch {}
+  }
+
+  function votoActual(mesa: Mesa, colId: string, pId: string): number {
+    const borrador = obtenerBorradorMesa(mesa.id);
+    if (borrador[colId] && typeof borrador[colId][pId] === 'number') {
+      return borrador[colId][pId];
+    }
+    return votosDe(mesa, colId, pId);
+  }
+
+  function ponerVotoBorrador(mesa: Mesa, colId: string, pId: string, n: number) {
+    const borrador = obtenerBorradorMesa(mesa.id);
+    if (!Object.keys(borrador).length && mesa.votos) {
+      Object.assign(borrador, structuredClone(mesa.votos));
+    }
+    (borrador[colId] ??= {})[pId] = entero(n);
+    guardarBorradorMesa(mesa.id, borrador);
+  }
+
   function mesaTieneCambiosSinEnviar(mesa: Mesa): boolean {
-    const confirmados = obtenerVotosConfirmados(mesa.id);
-    const actuales = mesa.votos ?? {};
-    const cols = new Set([...Object.keys(confirmados), ...Object.keys(actuales)]);
+    const borrador = obtenerBorradorMesa(mesa.id);
+    if (!Object.keys(borrador).length) return false;
+    const oficiales = mesa.votos ?? {};
+    const cols = new Set([...Object.keys(borrador), ...Object.keys(oficiales)]);
     for (const c of cols) {
-      const p1 = confirmados[c] ?? {};
-      const p2 = actuales[c] ?? {};
+      const p1 = borrador[c] ?? {};
+      const p2 = oficiales[c] ?? {};
       const partidos = new Set([...Object.keys(p1), ...Object.keys(p2)]);
       for (const p of partidos) {
         if (Number(p1[p] ?? 0) !== Number(p2[p] ?? 0)) return true;
@@ -240,7 +278,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   function fila(mesa: Mesa, col: string, p: string, num: string, nombre: string) {
-    const v = votosDe(mesa, col, p);
+    const v = votoActual(mesa, col, p);
     const min = minimoPermitido(mesa.id, col, p);
     return `
       <li class="fila${v > 0 ? ' con-votos' : ''}" data-col="${esc(col)}" data-p="${esc(p)}" data-min="${min}" data-nombre="${esc(nombre)}">
@@ -300,7 +338,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     chequeo.hidden = !mesa;
     if (!mesa) return;
 
-    const totales = cols.map((col) => ({ col, r: resumen(col, [mesa]) }));
+    const borrador = obtenerBorradorMesa(mesa.id);
+    const votosTrabajo = Object.keys(borrador).length ? borrador : (mesa.votos ?? {});
+    const mesaTrabajo: Mesa = { ...mesa, votos: votosTrabajo };
+
+    const totales = cols.map((col) => ({ col, r: resumen(col, [mesaTrabajo]) }));
     const ns = totales.map((t) => t.r.emitidos);
     const mayor = Math.max(0, ...ns);
     const faltan = totales.filter((t) => t.r.emitidos === 0);
@@ -348,10 +390,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
       if (hayPendientes) {
         dockPulso.className = 'dock-pulso warn';
-        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.85; color:var(--warn); font-weight:700;">(Sin enviar)</span>`;
+        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.9; color:var(--warn); font-weight:750;">(Pendiente de envío)</span>`;
       } else {
         dockPulso.className = 'dock-pulso';
-        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.95; color:var(--ok); font-weight:700;">✓ Registrado</span>`;
+        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.95; color:var(--ok); font-weight:700;">✓ Registrado en la central</span>`;
       }
     }
   }
@@ -361,12 +403,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (!mesa) return;
     const min = Number(li.dataset.min ?? 0);
     const valorFinal = Math.max(min, n);
-    ponerVotos(mesa, li.dataset.col!, li.dataset.p!, valorFinal);
+    ponerVotoBorrador(mesa, li.dataset.col!, li.dataset.p!, valorFinal);
     li.classList.toggle('con-votos', valorFinal > 0);
     const btnMenos = li.querySelector<HTMLButtonElement>('button[data-d="-1"]');
     if (btnMenos) btnMenos.disabled = valorFinal <= min;
-    // Guardado exclusivamente local (borrador en el celular). NO sube a Supabase.
-    guardarLocal(d);
     pintarEstado();
   }
 
@@ -500,10 +540,13 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const { mesa, cols } = actual();
     if (!mesa) return;
 
+    const borrador = obtenerBorradorMesa(mesa.id);
+    const votosAEnviar = Object.keys(borrador).length ? borrador : (mesa.votos ?? {});
+
     // 1. Validar que ningún voto sea menor al mínimo registrado previamente
     for (const col of cols) {
       for (const p of col.partidos) {
-        const v = votosDe(mesa, col.id, p.id);
+        const v = Number(votosAEnviar?.[col.id]?.[p.id] ?? 0);
         const min = minimoPermitido(mesa.id, col.id, p.id);
         if (v < min) {
           Swal.fire({
@@ -517,7 +560,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         }
       }
       for (const esp of [BLANCO, NULO]) {
-        const v = votosDe(mesa, col.id, esp);
+        const v = Number(votosAEnviar?.[col.id]?.[esp] ?? 0);
         const min = minimoPermitido(mesa.id, col.id, esp);
         if (v < min) {
           const nom = esp === BLANCO ? 'Votos en blanco' : 'Votos nulos';
@@ -534,7 +577,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     }
 
     // 2. Advertencia preventiva si faltan columnas por llenar
-    const totales = cols.map((col) => ({ col, r: resumen(col, [mesa]) }));
+    const mesaTrabajo: Mesa = { ...mesa, votos: votosAEnviar };
+    const totales = cols.map((col) => ({ col, r: resumen(col, [mesaTrabajo]) }));
     const faltan = totales.filter((t) => t.r.emitidos === 0);
     const algunoTiene = totales.some((t) => t.r.emitidos > 0);
 
@@ -554,6 +598,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       if (!res.isConfirmed) return;
     }
 
+    const conf = await Swal.fire({
+      ...swalConfig(),
+      title: `¿Confirmar y enviar Mesa ${mesa.numero}?`,
+      text: 'Los votos se registrarán de manera definitiva en el conteo de la central.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, registrar en la central',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!conf.isConfirmed) return;
+
     btnGuardarMesa.disabled = true;
     btnGuardarTexto.textContent = 'Enviando…';
 
@@ -569,6 +624,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     });
 
     try {
+      mesa.votos = structuredClone(votosAEnviar);
+      limpiarBorradorMesa(mesa.id);
       guardar(d);
       const res = await subirAhora(d);
       if (res.ok) {
@@ -609,7 +666,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       });
     } finally {
       btnGuardarMesa.disabled = false;
-      btnGuardarTexto.textContent = 'Enviar Votos';
+      btnGuardarTexto.textContent = 'Enviar a la central';
       pintar();
     }
   }

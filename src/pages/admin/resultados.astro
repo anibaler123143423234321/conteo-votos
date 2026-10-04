@@ -45,6 +45,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       <div class="dash-meta" id="dash-alcance-meta">Provincia de Ferreñafe</div>
     </div>
 
+    <!-- Selector de columna para gráficos (visible en móvil y escritorio) -->
+    <div class="dash-pills-bar" id="dash-pills" role="tablist" aria-label="Elegir columna de la cédula para los gráficos"></div>
+
     <div class="dash-kpis">
       <div class="dash-kpi">
         <span class="dash-kpi-et">Agrupación Líder</span>
@@ -332,7 +335,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     const canvasBarras = $<HTMLCanvasElement>('chart-res-barras');
     const emptyBarras = $('empty-res-barras');
 
-    if (!filas.length || r.emitidos === 0) {
+    if (!filas.length) {
       emptyBarras.hidden = false;
       canvasBarras.style.display = 'none';
       if (chartBarras) {
@@ -400,8 +403,13 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
             },
             scales: {
               x: {
+                beginAtZero: true,
                 grid: { color: c.gridColor },
-                ticks: { color: c.mutedColor, font: { family: 'inherit', size: 11 } },
+                ticks: {
+                  color: c.mutedColor,
+                  font: { family: 'inherit', size: 11 },
+                  precision: 0,
+                },
               },
               y: {
                 grid: { display: false },
@@ -425,71 +433,66 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     const emptyDonut = $('empty-res-donut');
     const donutLeyenda = $('donut-res-leyenda');
 
-    if (r.emitidos === 0) {
-      emptyDonut.hidden = false;
-      canvasDonut.style.display = 'none';
-      donutLeyenda.innerHTML = '';
-      if (chartDonut) {
-        chartDonut.destroy();
-        chartDonut = null;
-      }
+    emptyDonut.hidden = true;
+    canvasDonut.style.display = 'block';
+
+    const donutData = r.emitidos > 0 ? [r.validos, r.blanco, r.nulo] : [1];
+    const donutLabels = r.emitidos > 0 ? ['Votos Válidos', 'Votos en Blanco', 'Votos Nulos'] : ['Esperando escrutinio'];
+    const donutColors = r.emitidos > 0 ? ['#2563eb', '#94a3b8', '#ef4444'] : [c.isDark ? '#2c3446' : '#e2e8f0'];
+
+    if (chartDonut) {
+      chartDonut.data.labels = donutLabels;
+      chartDonut.data.datasets[0].data = donutData;
+      chartDonut.data.datasets[0].backgroundColor = donutColors;
+      chartDonut.data.datasets[0].borderColor = c.surface;
+      chartDonut.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
+      chartDonut.options.plugins!.tooltip!.titleColor = c.textColor;
+      chartDonut.options.plugins!.tooltip!.bodyColor = c.textColor;
+      chartDonut.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
+      chartDonut.update();
     } else {
-      emptyDonut.hidden = true;
-      canvasDonut.style.display = 'block';
-
-      const donutData = [r.validos, r.blanco, r.nulo];
-      const donutLabels = ['Votos Válidos', 'Votos en Blanco', 'Votos Nulos'];
-      const donutColors = ['#2563eb', '#94a3b8', '#ef4444'];
-
-      if (chartDonut) {
-        chartDonut.data.datasets[0].data = donutData;
-        chartDonut.data.datasets[0].borderColor = c.surface;
-        chartDonut.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
-        chartDonut.options.plugins!.tooltip!.titleColor = c.textColor;
-        chartDonut.options.plugins!.tooltip!.bodyColor = c.textColor;
-        chartDonut.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
-        chartDonut.update();
-      } else {
-        chartDonut = new Chart(canvasDonut, {
-          type: 'doughnut',
-          data: {
-            labels: donutLabels,
-            datasets: [
-              {
-                data: donutData,
-                backgroundColor: donutColors,
-                borderColor: c.surface,
-                borderWidth: 2,
-                hoverOffset: 6,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '68%',
-            animation: { duration: 350 },
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                backgroundColor: c.tooltipBg,
-                titleColor: c.textColor,
-                bodyColor: c.textColor,
-                borderColor: c.tooltipBorder,
-                borderWidth: 1,
-                padding: 10,
-                callbacks: {
-                  label: (ctx) => {
-                    const val = ctx.raw as number;
-                    return ` ${fmt(val)} votos (${pct(val, r.emitidos)} del total)`;
-                  },
+      chartDonut = new Chart(canvasDonut, {
+        type: 'doughnut',
+        data: {
+          labels: donutLabels,
+          datasets: [
+            {
+              data: donutData,
+              backgroundColor: donutColors,
+              borderColor: c.surface,
+              borderWidth: 2,
+              hoverOffset: r.emitidos > 0 ? 6 : 0,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '68%',
+          animation: { duration: 350 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: c.tooltipBg,
+              titleColor: c.textColor,
+              bodyColor: c.textColor,
+              borderColor: c.tooltipBorder,
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                label: (ctx) => {
+                  if (r.emitidos === 0) return ' Esperando ingreso de votos';
+                  const val = ctx.raw as number;
+                  return ` ${fmt(val)} votos (${pct(val, r.emitidos)} del total)`;
                 },
               },
             },
           },
-        });
-      }
+        },
+      });
+    }
 
+    if (r.emitidos > 0) {
       donutLeyenda.innerHTML = `
         <div class="dash-legend-item">
           <span class="dash-legend-dot" style="background:${donutColors[0]}"></span>
@@ -505,6 +508,13 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           <span class="dash-legend-dot" style="background:${donutColors[2]}"></span>
           <span>Nulos:</span>
           <span class="dash-legend-val">${fmt(r.nulo)} (${pct(r.nulo, r.emitidos)})</span>
+        </div>
+      `;
+    } else {
+      donutLeyenda.innerHTML = `
+        <div class="dash-legend-item">
+          <span class="dash-legend-dot" style="background:#94a3b8"></span>
+          <span>Esperando inicio de escrutinio en este filtro (0 emitidos)</span>
         </div>
       `;
     }
@@ -567,6 +577,19 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           `<button type="button" role="tab" data-tab="${i}" aria-selected="${i === tab}" title="${esc(r.columna.titulo)}"><span class="tab-et">${esc(r.columna.corto || r.columna.titulo)}</span><span class="tab-n">${fmt(r.emitidos)}</span></button>`,
       )
       .join('');
+
+    const dashPills = $('dash-pills');
+    if (dashPills) {
+      dashPills.innerHTML = resumenes
+        .map(
+          (r, i) =>
+            `<button type="button" class="dash-pill-btn" data-pill="${i}" aria-selected="${i === tab}">
+              <span>${esc(r.columna.corto || r.columna.titulo)}</span>
+              <span class="pill-n">${fmt(r.emitidos)}</span>
+            </button>`,
+        )
+        .join('');
+    }
 
     cont.innerHTML = resumenes
       .map((r, i) => {
@@ -651,9 +674,26 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     if (!b) return;
     tab = Number(b.dataset.tab);
     tabs.querySelectorAll('[data-tab]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
+    const dashPills = $('dash-pills');
+    if (dashPills) {
+      dashPills.querySelectorAll('[data-pill]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
+    }
     cont.querySelectorAll('.col-panel').forEach((x, i) => x.classList.toggle('active', i === tab));
     actualizarDashboard();
   });
+
+  const dashPills = $('dash-pills');
+  if (dashPills) {
+    dashPills.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-pill]');
+      if (!b) return;
+      tab = Number(b.dataset.pill);
+      dashPills.querySelectorAll('[data-pill]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
+      tabs.querySelectorAll('[data-tab]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
+      cont.querySelectorAll('.col-panel').forEach((x, i) => x.classList.toggle('active', i === tab));
+      actualizarDashboard();
+    });
+  }
 
   // Observador para cambios de modo oscuro / claro
   const obsTema = new MutationObserver(() => {

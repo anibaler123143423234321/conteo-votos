@@ -217,15 +217,14 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
     const canvasDistritos = $<HTMLCanvasElement>('chart-resumen-distritos');
     const labelsDistritos = distritosDatos.map((x) => x.nombre);
-    const dataDistritos = distritosDatos.map((x) => x.pctNum);
-    const bgDistritos = distritosDatos.map((x) =>
-      x.pctNum >= 100 ? '#10b981' : x.pctNum > 0 ? '#2563eb' : (c.isDark ? '#2c3446' : '#cbd5e1')
-    );
+    const dataComputadas = distritosDatos.map((x) => x.contadas);
+    const dataPendientes = distritosDatos.map((x) => x.total - x.contadas);
 
     if (chartDistritos) {
       chartDistritos.data.labels = labelsDistritos;
-      chartDistritos.data.datasets[0].data = dataDistritos;
-      chartDistritos.data.datasets[0].backgroundColor = bgDistritos;
+      chartDistritos.data.datasets[0].data = dataComputadas;
+      chartDistritos.data.datasets[1].data = dataPendientes;
+      chartDistritos.data.datasets[1].backgroundColor = c.isDark ? '#253043' : '#e2e8f0';
       chartDistritos.options.scales!.x!.grid!.color = c.gridColor;
       chartDistritos.options.scales!.x!.ticks!.color = c.mutedColor;
       chartDistritos.options.scales!.y!.ticks!.color = c.textColor;
@@ -241,12 +240,20 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           labels: labelsDistritos,
           datasets: [
             {
-              label: '% Avance',
-              data: dataDistritos,
-              backgroundColor: bgDistritos,
-              borderRadius: 6,
+              label: 'Mesas Computadas',
+              data: dataComputadas,
+              backgroundColor: '#10b981',
+              borderRadius: 5,
               borderSkipped: false,
-              barThickness: 22,
+              barThickness: 20,
+            },
+            {
+              label: 'Mesas Pendientes',
+              data: dataPendientes,
+              backgroundColor: c.isDark ? '#253043' : '#e2e8f0',
+              borderRadius: 5,
+              borderSkipped: false,
+              barThickness: 20,
             },
           ],
         },
@@ -256,7 +263,18 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           maintainAspectRatio: false,
           animation: { duration: 350 },
           plugins: {
-            legend: { display: false },
+            legend: {
+              display: true,
+              position: 'top',
+              labels: {
+                color: c.textColor,
+                font: { family: 'inherit', size: 11, weight: 600 },
+                boxWidth: 12,
+                boxHeight: 12,
+                borderRadius: 3,
+                useBorderRadius: true,
+              },
+            },
             tooltip: {
               backgroundColor: c.tooltipBg,
               titleColor: c.textColor,
@@ -265,26 +283,26 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
               borderWidth: 1,
               padding: 10,
               callbacks: {
-                label: (ctx) => {
-                  const idx = ctx.dataIndex;
+                afterTitle: (items) => {
+                  const idx = items[0]?.dataIndex ?? 0;
                   const item = distritosDatos[idx];
-                  return ` ${item.pctTexto} · ${fmt(item.contadas)} de ${fmt(item.total)} mesas`;
+                  return `Avance: ${item?.pctTexto || '0%'} (${item?.contadas || 0} de ${item?.total || 0} mesas)`;
                 },
               },
             },
           },
           scales: {
             x: {
-              min: 0,
-              max: 100,
+              stacked: true,
               grid: { color: c.gridColor },
               ticks: {
                 color: c.mutedColor,
-                callback: (val) => `${val}%`,
                 font: { family: 'inherit', size: 11 },
+                precision: 0,
               },
             },
             y: {
+              stacked: true,
               grid: { display: false },
               ticks: {
                 color: c.textColor,
