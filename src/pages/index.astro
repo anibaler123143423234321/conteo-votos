@@ -51,6 +51,22 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
   <div class="columnas" id="columnas" data-partidos={`${base}/admin/partidos`}></div>
+
+  <!-- Dock flotante de acción (Glassmorphism Pill) -->
+  <div class="dock-flotante" id="dock-flotante" hidden>
+    <div class="dock-inner">
+      <div class="dock-resumen">
+        <span class="dock-pulso" id="dock-pulso"></span>
+        <span class="dock-texto" id="dock-texto">Mesa lista</span>
+      </div>
+      <button type="button" class="dock-btn-enviar" id="btn-guardar-mesa">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
+          <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
+        </svg>
+        <span id="btn-guardar-texto">Enviar Votos</span>
+      </button>
+    </div>
+  </div>
 </Layout>
 
 <script>
@@ -75,7 +91,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     type Columna,
     type Mesa,
   } from '../lib/store';
-  import { conectar, nubeActiva } from '../lib/nube';
+  import { conectar, nubeActiva, subirAhora } from '../lib/nube';
+  import Swal from 'sweetalert2';
+  import 'sweetalert2/dist/sweetalert2.min.css';
 
   const CLAVE_SEL = 'conteo-votos:seleccion';
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -96,6 +114,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const vacio = $('vacio');
   const tabs = $('tabs');
   const columnas = $('columnas');
+  const dockFlotante = $('dock-flotante');
+  const dockTexto = $('dock-texto');
+  const dockPulso = $('dock-pulso');
+  const btnGuardarMesa = $<HTMLButtonElement>('btn-guardar-mesa');
+  const btnGuardarTexto = $('btn-guardar-texto');
 
   let sel = { di: '', c: '', a: '', m: '' };
   let tab = 0;
@@ -146,6 +169,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
     vacio.hidden = !!mesa;
     tabs.hidden = !mesa;
+    dockFlotante.hidden = !mesa;
     if (!mesa) {
       $('vacio-texto').textContent = distrito?.colegios.length
         ? 'Esta aula todavía no tiene mesas.'
@@ -288,6 +312,13 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       chequeo.className = 'chip';
       chequeo.textContent = 'Sin votos todavía';
     }
+
+    if (dockFlotante && mesa) {
+      dockFlotante.hidden = false;
+      const emitidos = Math.max(0, ...ns);
+      dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'}`;
+      dockPulso.className = faltan.length > 0 && emitidos > 0 ? 'dock-pulso warn' : 'dock-pulso';
+    }
   }
 
   function cambiar(li: HTMLElement, n: number) {
@@ -373,6 +404,270 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     else input.blur();
   });
 
+  function swalConfig() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    return {
+      customClass: {
+        popup: 'swal-custom-popup',
+        confirmButton: 'btn primary swal-btn-confirm',
+        cancelButton: 'btn swal-btn-cancel',
+      },
+      buttonsStyling: false,
+      background: isDark ? '#161b26' : '#ffffff',
+      color: isDark ? '#e8ebf1' : '#101828',
+    };
+  }
+
+  async function enviarVotosMesa() {
+    const { mesa, cols } = actual();
+    if (!mesa) return;
+
+    const totales = cols.map((col) => ({ col, r: resumen(col, [mesa]) }));
+    const faltan = totales.filter((t) => t.r.emitidos === 0);
+    const algunoTiene = totales.some((t) => t.r.emitidos > 0);
+
+    if (faltan.length > 0 && algunoTiene) {
+      const nombres = faltan.map((t) => t.col.corto || t.col.titulo).join(', ');
+      const res = await Swal.fire({
+        ...swalConfig(),
+        title: '¿Enviar mesa incompleta?',
+        html: `Todavía no has anotado votos para:<br><b style="color: var(--warn, #eab308); font-size: 1.05em; display: inline-block; margin-top: 6px;">${nombres}</b><br><br><span style="font-size: 13px; opacity: 0.85;">¿Deseas enviar los resultados de todas maneras?</span>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, enviar de todos modos',
+        cancelButtonText: 'Revisar votos',
+        reverseButtons: true,
+        focusCancel: true,
+      });
+      if (!res.isConfirmed) return;
+    }
+
+    btnGuardarMesa.disabled = true;
+    btnGuardarTexto.textContent = 'Enviando…';
+
+    Swal.fire({
+      ...swalConfig(),
+      title: 'Enviando a la central…',
+      text: `Sincronizando votos de la Mesa ${mesa.numero}`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+
+    try {
+      guardar(d);
+      const res = await subirAhora(d);
+      if (res.ok) {
+        Swal.fire({
+          ...swalConfig(),
+          icon: 'success',
+          title: '¡Mesa Enviada!',
+          text: res.mensaje || `Los votos de la Mesa ${mesa.numero} se guardaron exitosamente.`,
+          timer: 2300,
+          showConfirmButton: false,
+        });
+      } else if (res.estado === 'pendiente') {
+        Swal.fire({
+          ...swalConfig(),
+          icon: 'info',
+          title: 'Guardado en tu celular',
+          text: 'Sin conexión en este momento. Los votos se subirán automáticamente apenas recuperes señal.',
+          confirmButtonText: 'Entendido',
+        });
+      } else {
+        Swal.fire({
+          ...swalConfig(),
+          icon: 'error',
+          title: 'Aviso de sincronización',
+          text: res.mensaje || 'No se pudo contactar con Supabase.',
+          confirmButtonText: 'Cerrar',
+        });
+      }
+    } catch {
+      Swal.fire({
+        ...swalConfig(),
+        icon: 'warning',
+        title: 'Guardado localmente',
+        text: 'Hubo un inconveniente de red. Los datos quedaron guardados en este dispositivo y se sincronizarán solos.',
+        confirmButtonText: 'Entendido',
+      });
+    } finally {
+      btnGuardarMesa.disabled = false;
+      btnGuardarTexto.textContent = 'Enviar Votos';
+      pintar();
+    }
+  }
+
+  btnGuardarMesa?.addEventListener('click', enviarVotosMesa);
+
   pintar();
   conectar(d, pintar);
 </script>
+
+<style>
+  /* ================= Dock Flotante Inferior ================= */
+  .dock-flotante {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    max-width: 440px;
+    width: calc(100% - 32px);
+    pointer-events: none;
+    animation: dockEntrada 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes dockEntrada {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(20px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+  }
+
+  .dock-inner {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 8px 6px 16px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    border-radius: 9999px;
+    box-shadow:
+      0 12px 32px -4px rgb(0 0 0 / 0.18),
+      0 4px 12px -2px rgb(0 0 0 / 0.08);
+  }
+
+  .dock-resumen {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .dock-pulso {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+    animation: pulsoVerde 2.2s infinite;
+    flex-shrink: 0;
+  }
+
+  .dock-pulso.warn {
+    background: var(--warn);
+    animation: pulsoAmbar 2.2s infinite;
+  }
+
+  @keyframes pulsoVerde {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 70%, transparent); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px transparent; }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 transparent; }
+  }
+
+  @keyframes pulsoAmbar {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 70%, transparent); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px transparent; }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 transparent; }
+  }
+
+  .dock-texto {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dock-btn-enviar {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 38px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgb(37 99 235 / 0.38);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .dock-btn-enviar:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgb(37 99 235 / 0.48);
+    filter: brightness(1.06);
+  }
+
+  .dock-btn-enviar:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  .dock-btn-enviar:disabled {
+    opacity: 0.65;
+    cursor: wait;
+    transform: none;
+  }
+
+  /* ================= SweetAlert2 Theme ================= */
+  :global(.swal-custom-popup) {
+    border: 1px solid var(--border) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 20px 45px -10px rgb(0 0 0 / 0.35) !important;
+    font-family: var(--font) !important;
+    padding: 24px 20px !important;
+  }
+
+  :global(.swal-custom-popup .swal2-title) {
+    font-size: 19px !important;
+    font-weight: 750 !important;
+    letter-spacing: -0.01em !important;
+  }
+
+  :global(.swal-custom-popup .swal2-html-container) {
+    font-size: 13.5px !important;
+    line-height: 1.5 !important;
+  }
+
+  :global(.swal-btn-confirm) {
+    height: 38px !important;
+    padding: 0 20px !important;
+    border-radius: 9999px !important;
+    font-weight: 700 !important;
+    font-size: 13.5px !important;
+    cursor: pointer !important;
+  }
+
+  :global(.swal-btn-cancel) {
+    height: 38px !important;
+    padding: 0 16px !important;
+    border-radius: 9999px !important;
+    font-weight: 600 !important;
+    font-size: 13.5px !important;
+    margin-right: 10px !important;
+    cursor: pointer !important;
+  }
+
+  /* Espacio extra al final para que el dock no tape los últimos partidos */
+  :global(.columnas) {
+    padding-bottom: 75px !important;
+  }
+</style>

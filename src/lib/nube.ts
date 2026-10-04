@@ -366,6 +366,7 @@ let sucio = false;
 /** Hay que traer los datos de la nube. */
 let porTraer = false;
 let trabajando = false;
+let sembrando = false;
 let espera: ReturnType<typeof setTimeout> | undefined;
 let reintento: ReturnType<typeof setTimeout> | undefined;
 
@@ -442,6 +443,17 @@ async function trabajar() {
         // Sin sesión o sin acceso, la seguridad de Supabase devuelve las tablas vacías.
         if (!(await usuario())) return cambiar('sin-sesion');
         if ((await averiguarRol()) === null) return;
+        if (rolActual === 'admin' && !sembrando && datos) {
+          sembrando = true;
+          try {
+            base = vacio();
+            sucio = true;
+            cambiar('guardando', 'Subiendo datos iniciales a Supabase…');
+            continue;
+          } finally {
+            sembrando = false;
+          }
+        }
         base = null;
         sucio = false;
         guardarBase();
@@ -496,6 +508,33 @@ export async function sembrar(d: Datos) {
   sucio = true;
   cambiar('guardando');
   await trabajar();
+}
+
+/** Fuerza la subida inmediata de datos a Supabase y espera el resultado para dar feedback al usuario. */
+export async function subirAhora(d?: Datos): Promise<{ ok: boolean; estado: EstadoNube; mensaje: string }> {
+  if (d) datos = d;
+  if (!nubeActiva) {
+    return { ok: true, estado: 'local', mensaje: '✓ Votos guardados correctamente en este dispositivo.' };
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { ok: true, estado: 'pendiente', mensaje: '✓ Guardado localmente. Se enviará a la central apenas recuperes señal.' };
+  }
+  if (rolActual === null) {
+    return { ok: false, estado: 'sin-acceso', mensaje: 'No tienes permisos autorizados para registrar votos.' };
+  }
+  sucio = true;
+  if (!base && rolActual === 'admin' && datos) {
+    await sembrar(datos);
+  } else {
+    await trabajar();
+  }
+  if (estado === 'sincronizado') {
+    return { ok: true, estado: 'sincronizado', mensaje: '✓ ¡Votos guardados y enviados a la central con éxito!' };
+  }
+  if (estado === 'pendiente') {
+    return { ok: true, estado: 'pendiente', mensaje: '✓ Guardado localmente. En cola para subir a Supabase.' };
+  }
+  return { ok: false, estado, mensaje: 'Aviso: No se pudo enviar a Supabase en este momento. Se reintentará en segundo plano.' };
 }
 
 /** Trae lo nuevo de la nube si no se está escribiendo ni editando (para no repintar encima). */
