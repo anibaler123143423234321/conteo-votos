@@ -18,6 +18,67 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
   <div class="kpis" id="kpis"></div>
 
+  <!-- Dashboard General de Escrutinio Provincial (Chart.js) -->
+  <section class="dash-card" id="dash-resumen" aria-label="Dashboard general de escrutinio">
+    <div class="dash-cab">
+      <div class="dash-titulo-wrap">
+        <span class="dash-badge ok" id="resumen-badge">Provincia en Directo</span>
+        <h2 class="dash-titulo">Estado y Avance General del Escrutinio</h2>
+      </div>
+      <div class="dash-meta" id="resumen-chart-meta">Ferreñafe · 6 Distritos</div>
+    </div>
+
+    <!-- Mini KPIs destacados de avance -->
+    <div class="dash-kpis">
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Escrutinio Provincial</span>
+        <div class="dash-kpi-val" id="kpi-pct-avance">0%</div>
+        <span class="dash-kpi-sub" id="kpi-mesas-detalle">0 de 0 mesas</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Votos Computados</span>
+        <div class="dash-kpi-val" id="kpi-votos-totales">0</div>
+        <span class="dash-kpi-sub" id="kpi-votos-sub">En mesas procesadas</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Participación Estimada</span>
+        <div class="dash-kpi-val" id="kpi-participacion">0%</div>
+        <span class="dash-kpi-sub" id="kpi-electores-sub">Sobre electores hábiles</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Mesas Pendientes</span>
+        <div class="dash-kpi-val" id="kpi-mesas-pendientes">0</div>
+        <span class="dash-kpi-sub" id="kpi-pendientes-sub">Por procesar</span>
+      </div>
+    </div>
+
+    <!-- Gráficos interactivos Chart.js -->
+    <div class="dash-graficos">
+      <!-- Gráfico 1: Barras de Avance por Distrito -->
+      <div class="dash-grafico-card">
+        <div class="dash-grafico-cab">
+          <h3 class="dash-grafico-titulo">Avance de Escrutinio por Distrito</h3>
+          <span class="dash-grafico-tag">% de mesas procesadas</span>
+        </div>
+        <div class="dash-canvas-wrap">
+          <canvas id="chart-resumen-distritos"></canvas>
+        </div>
+      </div>
+
+      <!-- Gráfico 2: Dona de Estado General de Mesas -->
+      <div class="dash-grafico-card">
+        <div class="dash-grafico-cab">
+          <h3 class="dash-grafico-titulo">Distribución de Mesas Provincial</h3>
+          <span class="dash-grafico-tag">Total de la provincia</span>
+        </div>
+        <div class="dash-canvas-wrap dona-wrap">
+          <canvas id="chart-resumen-mesas"></canvas>
+        </div>
+        <div class="dash-donut-legend" id="resumen-donut-leyenda"></div>
+      </div>
+    </div>
+  </section>
+
   <section class="card">
     <h2 class="card-titulo">Avance por distrito</h2>
     <div class="tabla-wrap">
@@ -54,10 +115,12 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 </AdminLayout>
 
 <script>
+  import Chart from 'chart.js/auto';
   import {
     cargar,
     datosIniciales,
     descargar,
+    electoresDe,
     esDatos,
     esc,
     fmt,
@@ -66,6 +129,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     mesas,
     normalizar,
     pct,
+    resumen,
     type Datos,
   } from '../../lib/store';
   import { alEstado, conectar, nubeActiva, sembrar } from '../../lib/nube';
@@ -81,6 +145,226 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   if (nubeActiva) {
     $('texto-datos').textContent =
       'Los datos están en Supabase y cada navegador guarda una copia. Descarga un respaldo de vez en cuando.';
+  }
+
+  let chartDistritos: Chart | null = null;
+  let chartMesas: Chart | null = null;
+
+  function coloresTema() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      isDark,
+      textColor: isDark ? '#e8ebf1' : '#101828',
+      mutedColor: isDark ? '#a0a9ba' : '#5d6679',
+      gridColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(16, 24, 40, 0.07)',
+      borderColor: isDark ? '#222938' : '#e4e7ec',
+      surface: isDark ? '#161b26' : '#ffffff',
+      tooltipBg: isDark ? '#1d2331' : '#ffffff',
+      tooltipBorder: isDark ? '#2c3446' : '#d0d5dd',
+    };
+  }
+
+  function actualizarDashboardResumen() {
+    const todas = mesas(d);
+    const contadas = todas.filter((u) => mesaContada(d, u.mesa)).length;
+    const pendientes = todas.length - contadas;
+    const c = coloresTema();
+
+    // Sumar votos computados en la primera columna compartida (Gobernador / Provincial)
+    const colBase = d.columnas.find((col) => !col.distrito) || d.columnas[0];
+    const resumenBase = colBase ? resumen(colBase, todas.map((u) => u.mesa)) : null;
+    const votosTotales = resumenBase ? resumenBase.emitidos : 0;
+
+    // Electores hábiles en mesas procesadas
+    const mesasConVotos = todas.filter((u) => mesaContada(d, u.mesa)).map((u) => u.mesa);
+    const electoresProcesados = electoresDe(mesasConVotos);
+    const electoresTotales = electoresDe(todas.map((u) => u.mesa));
+
+    // KPI 1: Escrutinio Provincial
+    $('kpi-pct-avance').textContent = pct(contadas, todas.length);
+    $('kpi-mesas-detalle').textContent = `${fmt(contadas)} de ${fmt(todas.length)} mesas`;
+
+    // KPI 2: Votos Computados
+    $('kpi-votos-totales').textContent = fmt(votosTotales);
+    $('kpi-votos-sub').textContent = colBase ? `En ${colBase.corto || colBase.titulo}` : 'Votos computados';
+
+    // KPI 3: Participación Estimada
+    if (electoresProcesados > 0 && votosTotales > 0) {
+      $('kpi-participacion').textContent = pct(votosTotales, electoresProcesados);
+      $('kpi-electores-sub').textContent = `${fmt(votosTotales)} de ${fmt(electoresProcesados)} electores`;
+    } else {
+      $('kpi-participacion').textContent = '—';
+      $('kpi-electores-sub').textContent = electoresTotales ? `${fmt(electoresTotales)} hábiles en padrón` : 'Esperando datos';
+    }
+
+    // KPI 4: Mesas Pendientes
+    $('kpi-mesas-pendientes').textContent = fmt(pendientes);
+    $('kpi-pendientes-sub').textContent = pendientes === 0 ? '¡100% concluido!' : `${pct(pendientes, todas.length)} faltante`;
+
+    // --- Gráfico 1: Barras de Avance por Distrito ---
+    const distritosDatos = d.distritos.map((x) => {
+      const lista = mesas(d, { distrito: x.id });
+      const n = lista.filter((u) => mesaContada(d, u.mesa)).length;
+      const px = porcentaje(n, lista.length);
+      return {
+        nombre: x.corto ?? x.nombre,
+        total: lista.length,
+        contadas: n,
+        pctNum: Number(px.toFixed(1)),
+        pctTexto: pct(n, lista.length),
+      };
+    });
+
+    const canvasDistritos = $<HTMLCanvasElement>('chart-resumen-distritos');
+    const labelsDistritos = distritosDatos.map((x) => x.nombre);
+    const dataDistritos = distritosDatos.map((x) => x.pctNum);
+    const bgDistritos = distritosDatos.map((x) =>
+      x.pctNum >= 100 ? '#10b981' : x.pctNum > 0 ? '#2563eb' : (c.isDark ? '#2c3446' : '#cbd5e1')
+    );
+
+    if (chartDistritos) {
+      chartDistritos.data.labels = labelsDistritos;
+      chartDistritos.data.datasets[0].data = dataDistritos;
+      chartDistritos.data.datasets[0].backgroundColor = bgDistritos;
+      chartDistritos.options.scales!.x!.grid!.color = c.gridColor;
+      chartDistritos.options.scales!.x!.ticks!.color = c.mutedColor;
+      chartDistritos.options.scales!.y!.ticks!.color = c.textColor;
+      chartDistritos.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
+      chartDistritos.options.plugins!.tooltip!.titleColor = c.textColor;
+      chartDistritos.options.plugins!.tooltip!.bodyColor = c.textColor;
+      chartDistritos.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
+      chartDistritos.update();
+    } else {
+      chartDistritos = new Chart(canvasDistritos, {
+        type: 'bar',
+        data: {
+          labels: labelsDistritos,
+          datasets: [
+            {
+              label: '% Avance',
+              data: dataDistritos,
+              backgroundColor: bgDistritos,
+              borderRadius: 6,
+              borderSkipped: false,
+              barThickness: 22,
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 350 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: c.tooltipBg,
+              titleColor: c.textColor,
+              bodyColor: c.textColor,
+              borderColor: c.tooltipBorder,
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                label: (ctx) => {
+                  const idx = ctx.dataIndex;
+                  const item = distritosDatos[idx];
+                  return ` ${item.pctTexto} · ${fmt(item.contadas)} de ${fmt(item.total)} mesas`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              min: 0,
+              max: 100,
+              grid: { color: c.gridColor },
+              ticks: {
+                color: c.mutedColor,
+                callback: (val) => `${val}%`,
+                font: { family: 'inherit', size: 11 },
+              },
+            },
+            y: {
+              grid: { display: false },
+              ticks: {
+                color: c.textColor,
+                font: { family: 'inherit', weight: 600, size: 12 },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // --- Gráfico 2: Dona de Estado de Mesas Provincial ---
+    const canvasMesas = $<HTMLCanvasElement>('chart-resumen-mesas');
+    const donutLeyenda = $('resumen-donut-leyenda');
+    const donutData = [contadas, pendientes];
+    const donutLabels = ['Mesas Computadas', 'Mesas Pendientes'];
+    const donutColors = ['#10b981', c.isDark ? '#2c3446' : '#cbd5e1'];
+
+    if (chartMesas) {
+      chartMesas.data.datasets[0].data = donutData;
+      chartMesas.data.datasets[0].backgroundColor = donutColors;
+      chartMesas.data.datasets[0].borderColor = c.surface;
+      chartMesas.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
+      chartMesas.options.plugins!.tooltip!.titleColor = c.textColor;
+      chartMesas.options.plugins!.tooltip!.bodyColor = c.textColor;
+      chartMesas.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
+      chartMesas.update();
+    } else {
+      chartMesas = new Chart(canvasMesas, {
+        type: 'doughnut',
+        data: {
+          labels: donutLabels,
+          datasets: [
+            {
+              data: donutData,
+              backgroundColor: donutColors,
+              borderColor: c.surface,
+              borderWidth: 2,
+              hoverOffset: 6,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '68%',
+          animation: { duration: 350 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: c.tooltipBg,
+              titleColor: c.textColor,
+              bodyColor: c.textColor,
+              borderColor: c.tooltipBorder,
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                label: (ctx) => {
+                  const val = ctx.raw as number;
+                  return ` ${fmt(val)} mesas (${pct(val, todas.length)})`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    donutLeyenda.innerHTML = `
+      <div class="dash-legend-item">
+        <span class="dash-legend-dot" style="background:#10b981"></span>
+        <span>Computadas:</span>
+        <span class="dash-legend-val">${fmt(contadas)} (${pct(contadas, todas.length)})</span>
+      </div>
+      <div class="dash-legend-item">
+        <span class="dash-legend-dot" style="background:${donutColors[1]}"></span>
+        <span>Pendientes:</span>
+        <span class="dash-legend-val">${fmt(pendientes)} (${pct(pendientes, todas.length)})</span>
+      </div>
+    `;
   }
 
   function pintar() {
@@ -99,6 +383,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       <section class="card kpi"><div class="et">Distritos</div><div class="valor">${fmt(d.distritos.length)}</div></section>
       <section class="card kpi"><div class="et">Colegios</div><div class="valor">${fmt(colegios)}</div></section>
       <section class="card kpi"><div class="et">Partidos</div><div class="valor">${fmt(partidos)} <small>en ${d.columnas.length} columnas</small></div></section>`;
+
+    actualizarDashboardResumen();
 
     $('avance').innerHTML = d.distritos
       .map((x) => {
@@ -175,6 +461,12 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     await sembrar(d);
     pintar();
   });
+
+  // Observador para cambios de modo oscuro / claro
+  const obsTema = new MutationObserver(() => {
+    actualizarDashboardResumen();
+  });
+  obsTema.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   pintar();
   conectar(d, pintar, { enVivo: true });

@@ -537,6 +537,54 @@ export async function subirAhora(d?: Datos): Promise<{ ok: boolean; estado: Esta
   return { ok: false, estado, mensaje: 'Aviso: No se pudo enviar a Supabase en este momento. Se reintentará en segundo plano.' };
 }
 
+const CLAVE_CONFIRMADOS = 'conteo-votos:votos-confirmados';
+
+/** Devuelve los votos que ya están registrados y confirmados en la base de datos para una mesa. */
+export function votosEnNube(mesaId: string): Votos {
+  if (!base) return {};
+  const raw = base['votos_mesa']?.get(mesaId);
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    return (obj.votos ?? {}) as Votos;
+  } catch {
+    return {};
+  }
+}
+
+/** Guarda localmente el registro de votos confirmados al pulsar Enviar. */
+export function marcarVotosConfirmados(mesaId: string, votos: Votos) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const todos = JSON.parse(localStorage.getItem(CLAVE_CONFIRMADOS) ?? '{}');
+    todos[mesaId] = structuredClone(votos);
+    localStorage.setItem(CLAVE_CONFIRMADOS, JSON.stringify(todos));
+  } catch {
+    // Sin espacio local: no pasa nada.
+  }
+}
+
+/** Obtiene los votos confirmados (tanto de la nube como del registro de envíos confirmados). */
+export function obtenerVotosConfirmados(mesaId: string): Votos {
+  const nube = votosEnNube(mesaId);
+  if (typeof localStorage === 'undefined') return nube;
+  try {
+    const local = JSON.parse(localStorage.getItem(CLAVE_CONFIRMADOS) ?? '{}')[mesaId] ?? {};
+    const resultado: Votos = {};
+    const cols = new Set([...Object.keys(nube), ...Object.keys(local)]);
+    for (const c of cols) {
+      resultado[c] = {};
+      const partidos = new Set([...Object.keys(nube[c] ?? {}), ...Object.keys(local[c] ?? {})]);
+      for (const p of partidos) {
+        resultado[c][p] = Math.max(Number(nube[c]?.[p] ?? 0), Number(local[c]?.[p] ?? 0));
+      }
+    }
+    return resultado;
+  } catch {
+    return nube;
+  }
+}
+
 /** Trae lo nuevo de la nube si no se está escribiendo ni editando (para no repintar encima). */
 function refrescarSiQuieto() {
   const activo = document.activeElement;

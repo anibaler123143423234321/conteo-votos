@@ -34,6 +34,74 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   </section>
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Columnas de la cédula"></div>
+
+  <!-- Dashboard de Gráficos de Resultados (Chart.js) -->
+  <section class="dash-card" id="dash-resultados" aria-label="Dashboard visual de resultados">
+    <div class="dash-cab">
+      <div class="dash-titulo-wrap">
+        <span class="dash-badge ok" id="dash-badge-estado">En vivo</span>
+        <h2 class="dash-titulo" id="dash-columna-titulo">Resultados</h2>
+      </div>
+      <div class="dash-meta" id="dash-alcance-meta">Provincia de Ferreñafe</div>
+    </div>
+
+    <div class="dash-kpis">
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Agrupación Líder</span>
+        <div class="dash-kpi-val" id="dash-kpi-lider">-</div>
+        <span class="dash-kpi-sub" id="dash-kpi-lider-sub">Esperando votos</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Votos Válidos</span>
+        <div class="dash-kpi-val" id="dash-kpi-validos">0</div>
+        <span class="dash-kpi-sub" id="dash-kpi-validos-sub">0% del total</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Blancos y Nulos</span>
+        <div class="dash-kpi-val" id="dash-kpi-viciados">0</div>
+        <span class="dash-kpi-sub" id="dash-kpi-viciados-sub">0% del total</span>
+      </div>
+      <div class="dash-kpi">
+        <span class="dash-kpi-et">Mesas Computadas</span>
+        <div class="dash-kpi-val" id="dash-kpi-mesas">0 / 0</div>
+        <span class="dash-kpi-sub" id="dash-kpi-mesas-sub">0% escrutado</span>
+      </div>
+    </div>
+
+    <div class="dash-graficos">
+      <!-- Gráfico de Barras: Votos por Partido -->
+      <div class="dash-grafico-card">
+        <div class="dash-grafico-cab">
+          <h3 class="dash-grafico-titulo">Votos por Agrupación Política</h3>
+          <span class="dash-grafico-tag" id="dash-tag-partidos">Ordenado por votos</span>
+        </div>
+        <div class="dash-canvas-wrap">
+          <canvas id="chart-res-barras"></canvas>
+          <div class="dash-empty" id="empty-res-barras" hidden>
+            <div class="dash-empty-icon">📊</div>
+            <div>Aún no se registran votos para esta columna en el filtro seleccionado.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfico de Dona: Distribución Válidos / Blancos / Nulos -->
+      <div class="dash-grafico-card">
+        <div class="dash-grafico-cab">
+          <h3 class="dash-grafico-titulo">Composición de Votos Emitidos</h3>
+          <span class="dash-grafico-tag">Distribución general</span>
+        </div>
+        <div class="dash-canvas-wrap dona-wrap">
+          <canvas id="chart-res-donut"></canvas>
+          <div class="dash-empty" id="empty-res-donut" hidden>
+            <div class="dash-empty-icon">🗳️</div>
+            <div>Sin votos emitidos aún.</div>
+          </div>
+        </div>
+        <div class="dash-donut-legend" id="donut-res-leyenda"></div>
+      </div>
+    </div>
+  </section>
+
   <div class="columnas" id="resultados"></div>
 
   <section class="card" id="por-distrito" aria-labelledby="por-distrito-titulo" hidden>
@@ -52,6 +120,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 </AdminLayout>
 
 <script>
+  import Chart from 'chart.js/auto';
   import {
     BLANCO,
     NULO,
@@ -70,9 +139,11 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     votosDe,
     type Aula,
     type Colegio,
+    type Columna,
     type Datos,
     type Distrito,
     type Mesa,
+    type Resumen,
   } from '../../lib/store';
   import { conectar } from '../../lib/nube';
 
@@ -88,6 +159,33 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   let tab = 0;
   /** Columna que muestra la tabla "Total por distrito". */
   let colMatriz = 0;
+
+  const PALETA_PARTIDOS = [
+    '#2563eb', '#0d9488', '#7c3aed', '#ea580c', '#0284c7',
+    '#db2777', '#16a34a', '#ca8a04', '#9333ea', '#0891b2',
+    '#e11d48', '#4f46e5', '#059669', '#d97706', '#475569',
+  ];
+
+  let chartBarras: Chart | null = null;
+  let chartDonut: Chart | null = null;
+  let ultimosResumenes: Resumen[] = [];
+  let ultimasCols: Columna[] = [];
+  let ultimasMesas: Mesa[] = [];
+  let ultimasContadas = 0;
+
+  function coloresTema() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      isDark,
+      textColor: isDark ? '#e8ebf1' : '#101828',
+      mutedColor: isDark ? '#a0a9ba' : '#5d6679',
+      gridColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(16, 24, 40, 0.07)',
+      borderColor: isDark ? '#222938' : '#e4e7ec',
+      surface: isDark ? '#161b26' : '#ffffff',
+      tooltipBg: isDark ? '#1d2331' : '#ffffff',
+      tooltipBorder: isDark ? '#2c3446' : '#d0d5dd',
+    };
+  }
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const fDistrito = $<HTMLSelectElement>('f-distrito');
@@ -186,6 +284,232 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       </tfoot>`;
   }
 
+  function actualizarDashboard() {
+    if (!ultimosResumenes.length || tab >= ultimosResumenes.length) return;
+    const r = ultimosResumenes[tab];
+    const col = ultimasCols[tab];
+    if (!r || !col) return;
+    const c = coloresTema();
+
+    // Actualizar encabezado
+    $('dash-columna-titulo').textContent = col.titulo;
+    const distritoAct = d.distritos.find((x) => x.id === f.distrito);
+    const colegioAct = distritoAct?.colegios.find((x) => x.id === f.colegio);
+    const aulaAct = colegioAct?.aulas.find((x) => x.id === f.aula);
+    const mesaAct = aulaAct?.mesas.find((x) => x.id === f.mesa);
+    $('dash-alcance-meta').textContent = alcance(distritoAct, colegioAct, aulaAct, mesaAct);
+
+    // Ordenar partidos por votos
+    const filas = [...r.filas].sort((a, b) => b.votos - a.votos);
+    const max = filas[0]?.votos ?? 0;
+    const segundo = filas[1]?.votos ?? 0;
+    const liderEl = $('dash-kpi-lider');
+    const liderSubEl = $('dash-kpi-lider-sub');
+
+    if (max > 0 && filas[0]) {
+      liderEl.textContent = filas[0].partido.nombre;
+      const ventaja = max - segundo;
+      liderSubEl.textContent =
+        ventaja > 0
+          ? `+${fmt(ventaja)} votos de ventaja (${pct(max, r.validos)} válidos)`
+          : `Empate con ${fmt(max)} votos (${pct(max, r.validos)})`;
+    } else {
+      liderEl.textContent = 'Sin votos';
+      liderSubEl.textContent = 'Esperando escrutinio';
+    }
+
+    $('dash-kpi-validos').textContent = fmt(r.validos);
+    $('dash-kpi-validos-sub').textContent = r.emitidos ? `${pct(r.validos, r.emitidos)} del total` : '0% del total';
+
+    const viciados = r.blanco + r.nulo;
+    $('dash-kpi-viciados').textContent = fmt(viciados);
+    $('dash-kpi-viciados-sub').textContent = r.emitidos ? `${pct(viciados, r.emitidos)} del total` : '0% del total';
+
+    $('dash-kpi-mesas').textContent = `${fmt(ultimasContadas)} / ${fmt(ultimasMesas.length)}`;
+    $('dash-kpi-mesas-sub').textContent = `${pct(ultimasContadas, ultimasMesas.length)} procesadas`;
+
+    // --- Gráfico de Barras ---
+    const canvasBarras = $<HTMLCanvasElement>('chart-res-barras');
+    const emptyBarras = $('empty-res-barras');
+
+    if (!filas.length || r.emitidos === 0) {
+      emptyBarras.hidden = false;
+      canvasBarras.style.display = 'none';
+      if (chartBarras) {
+        chartBarras.destroy();
+        chartBarras = null;
+      }
+    } else {
+      emptyBarras.hidden = true;
+      canvasBarras.style.display = 'block';
+
+      const labels = filas.map((x) => x.partido.nombre);
+      const dataVotos = filas.map((x) => x.votos);
+      const bgColors = filas.map((_, i) => PALETA_PARTIDOS[i % PALETA_PARTIDOS.length]);
+
+      if (chartBarras) {
+        chartBarras.data.labels = labels;
+        chartBarras.data.datasets[0].data = dataVotos;
+        chartBarras.data.datasets[0].backgroundColor = bgColors;
+        chartBarras.options.scales!.x!.grid!.color = c.gridColor;
+        chartBarras.options.scales!.x!.ticks!.color = c.mutedColor;
+        chartBarras.options.scales!.y!.ticks!.color = c.textColor;
+        chartBarras.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
+        chartBarras.options.plugins!.tooltip!.titleColor = c.textColor;
+        chartBarras.options.plugins!.tooltip!.bodyColor = c.textColor;
+        chartBarras.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
+        chartBarras.update();
+      } else {
+        chartBarras = new Chart(canvasBarras, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Votos',
+                data: dataVotos,
+                backgroundColor: bgColors,
+                borderRadius: 6,
+                borderSkipped: false,
+                barThickness: filas.length > 8 ? 16 : 22,
+              },
+            ],
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 350 },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: c.tooltipBg,
+                titleColor: c.textColor,
+                bodyColor: c.textColor,
+                borderColor: c.tooltipBorder,
+                borderWidth: 1,
+                padding: 10,
+                boxPadding: 4,
+                callbacks: {
+                  label: (ctx) => {
+                    const val = ctx.raw as number;
+                    return ` ${fmt(val)} votos (${pct(val, r.validos)} de válidos)`;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                grid: { color: c.gridColor },
+                ticks: { color: c.mutedColor, font: { family: 'inherit', size: 11 } },
+              },
+              y: {
+                grid: { display: false },
+                ticks: {
+                  color: c.textColor,
+                  font: { family: 'inherit', weight: 600, size: 12 },
+                  callback: function (_val, index) {
+                    const nombre = labels[index] || '';
+                    return nombre.length > 24 ? nombre.slice(0, 22) + '…' : nombre;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+    }
+
+    // --- Gráfico de Dona ---
+    const canvasDonut = $<HTMLCanvasElement>('chart-res-donut');
+    const emptyDonut = $('empty-res-donut');
+    const donutLeyenda = $('donut-res-leyenda');
+
+    if (r.emitidos === 0) {
+      emptyDonut.hidden = false;
+      canvasDonut.style.display = 'none';
+      donutLeyenda.innerHTML = '';
+      if (chartDonut) {
+        chartDonut.destroy();
+        chartDonut = null;
+      }
+    } else {
+      emptyDonut.hidden = true;
+      canvasDonut.style.display = 'block';
+
+      const donutData = [r.validos, r.blanco, r.nulo];
+      const donutLabels = ['Votos Válidos', 'Votos en Blanco', 'Votos Nulos'];
+      const donutColors = ['#2563eb', '#94a3b8', '#ef4444'];
+
+      if (chartDonut) {
+        chartDonut.data.datasets[0].data = donutData;
+        chartDonut.data.datasets[0].borderColor = c.surface;
+        chartDonut.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
+        chartDonut.options.plugins!.tooltip!.titleColor = c.textColor;
+        chartDonut.options.plugins!.tooltip!.bodyColor = c.textColor;
+        chartDonut.options.plugins!.tooltip!.borderColor = c.tooltipBorder;
+        chartDonut.update();
+      } else {
+        chartDonut = new Chart(canvasDonut, {
+          type: 'doughnut',
+          data: {
+            labels: donutLabels,
+            datasets: [
+              {
+                data: donutData,
+                backgroundColor: donutColors,
+                borderColor: c.surface,
+                borderWidth: 2,
+                hoverOffset: 6,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '68%',
+            animation: { duration: 350 },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: c.tooltipBg,
+                titleColor: c.textColor,
+                bodyColor: c.textColor,
+                borderColor: c.tooltipBorder,
+                borderWidth: 1,
+                padding: 10,
+                callbacks: {
+                  label: (ctx) => {
+                    const val = ctx.raw as number;
+                    return ` ${fmt(val)} votos (${pct(val, r.emitidos)} del total)`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      donutLeyenda.innerHTML = `
+        <div class="dash-legend-item">
+          <span class="dash-legend-dot" style="background:${donutColors[0]}"></span>
+          <span>Válidos:</span>
+          <span class="dash-legend-val">${fmt(r.validos)} (${pct(r.validos, r.emitidos)})</span>
+        </div>
+        <div class="dash-legend-item">
+          <span class="dash-legend-dot" style="background:${donutColors[1]}"></span>
+          <span>Blanco:</span>
+          <span class="dash-legend-val">${fmt(r.blanco)} (${pct(r.blanco, r.emitidos)})</span>
+        </div>
+        <div class="dash-legend-item">
+          <span class="dash-legend-dot" style="background:${donutColors[2]}"></span>
+          <span>Nulos:</span>
+          <span class="dash-legend-val">${fmt(r.nulo)} (${pct(r.nulo, r.emitidos)})</span>
+        </div>
+      `;
+    }
+  }
+
   function pintar() {
     const distrito = d.distritos.find((x) => x.id === f.distrito);
     const colegio = distrito?.colegios.find((x) => x.id === f.colegio);
@@ -281,6 +605,12 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       })
       .join('');
 
+    ultimasCols = cols;
+    ultimosResumenes = resumenes;
+    ultimasMesas = lista;
+    ultimasContadas = contadas;
+    actualizarDashboard();
+
     pintarPorDistrito(!distrito);
   }
 
@@ -322,7 +652,14 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     tab = Number(b.dataset.tab);
     tabs.querySelectorAll('[data-tab]').forEach((x, i) => x.setAttribute('aria-selected', String(i === tab)));
     cont.querySelectorAll('.col-panel').forEach((x, i) => x.classList.toggle('active', i === tab));
+    actualizarDashboard();
   });
+
+  // Observador para cambios de modo oscuro / claro
+  const obsTema = new MutationObserver(() => {
+    actualizarDashboard();
+  });
+  obsTema.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   const hoy = () => new Date().toISOString().slice(0, 10);
 

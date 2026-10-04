@@ -80,6 +80,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     esc,
     fmt,
     guardar,
+    guardarLocal,
     mesaContada,
     mesas,
     nombreColegio,
@@ -91,7 +92,13 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     type Columna,
     type Mesa,
   } from '../lib/store';
-  import { conectar, nubeActiva, subirAhora } from '../lib/nube';
+  import {
+    conectar,
+    nubeActiva,
+    subirAhora,
+    obtenerVotosConfirmados,
+    marcarVotosConfirmados,
+  } from '../lib/nube';
   import Swal from 'sweetalert2';
   import 'sweetalert2/dist/sweetalert2.min.css';
 
@@ -212,15 +219,36 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     pintarEstado();
   }
 
+  function minimoPermitido(mesaId: string, colId: string, partidoId: string): number {
+    const confirmados = obtenerVotosConfirmados(mesaId);
+    return Number(confirmados?.[colId]?.[partidoId] ?? 0);
+  }
+
+  function mesaTieneCambiosSinEnviar(mesa: Mesa): boolean {
+    const confirmados = obtenerVotosConfirmados(mesa.id);
+    const actuales = mesa.votos ?? {};
+    const cols = new Set([...Object.keys(confirmados), ...Object.keys(actuales)]);
+    for (const c of cols) {
+      const p1 = confirmados[c] ?? {};
+      const p2 = actuales[c] ?? {};
+      const partidos = new Set([...Object.keys(p1), ...Object.keys(p2)]);
+      for (const p of partidos) {
+        if (Number(p1[p] ?? 0) !== Number(p2[p] ?? 0)) return true;
+      }
+    }
+    return false;
+  }
+
   function fila(mesa: Mesa, col: string, p: string, num: string, nombre: string) {
     const v = votosDe(mesa, col, p);
+    const min = minimoPermitido(mesa.id, col, p);
     return `
-      <li class="fila${v > 0 ? ' con-votos' : ''}" data-col="${esc(col)}" data-p="${esc(p)}">
+      <li class="fila${v > 0 ? ' con-votos' : ''}" data-col="${esc(col)}" data-p="${esc(p)}" data-min="${min}" data-nombre="${esc(nombre)}">
         <span class="num">${num}</span>
         <span class="nombre" title="${esc(nombre)}">${esc(nombre)}</span>
         <span class="stepper">
-          <button type="button" data-d="-1" tabindex="-1" aria-label="Restar un voto a ${esc(nombre)}">−</button>
-          <input type="number" inputmode="numeric" enterkeyhint="next" min="0" step="1" value="${v}" aria-label="Votos de ${esc(nombre)}" />
+          <button type="button" data-d="-1" tabindex="-1" aria-label="Restar un voto a ${esc(nombre)}"${v <= min ? ' disabled' : ''}>−</button>
+          <input type="number" inputmode="numeric" enterkeyhint="next" min="${min}" step="1" value="${v}" aria-label="Votos de ${esc(nombre)}" />
           <button type="button" data-d="1" tabindex="-1" aria-label="Sumar un voto a ${esc(nombre)}">+</button>
         </span>
       </li>`;
@@ -316,17 +344,30 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (dockFlotante && mesa) {
       dockFlotante.hidden = false;
       const emitidos = Math.max(0, ...ns);
-      dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'}`;
-      dockPulso.className = faltan.length > 0 && emitidos > 0 ? 'dock-pulso warn' : 'dock-pulso';
+      const hayPendientes = mesaTieneCambiosSinEnviar(mesa);
+
+      if (hayPendientes) {
+        dockPulso.className = 'dock-pulso warn';
+        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.85; color:var(--warn); font-weight:700;">(Sin enviar)</span>`;
+      } else {
+        dockPulso.className = 'dock-pulso';
+        dockTexto.innerHTML = `Mesa <b>${esc(mesa.numero)}</b> · ${emitidos > 0 ? `<b>${fmt(emitidos)}</b> votos` : 'Sin votos'} <span style="font-size:11px; opacity:0.95; color:var(--ok); font-weight:700;">✓ Registrado</span>`;
+      }
     }
   }
 
   function cambiar(li: HTMLElement, n: number) {
     const { mesa } = actual();
     if (!mesa) return;
-    ponerVotos(mesa, li.dataset.col!, li.dataset.p!, n);
-    li.classList.toggle('con-votos', n > 0);
-    pintarEstado(guardar(d));
+    const min = Number(li.dataset.min ?? 0);
+    const valorFinal = Math.max(min, n);
+    ponerVotos(mesa, li.dataset.col!, li.dataset.p!, valorFinal);
+    li.classList.toggle('con-votos', valorFinal > 0);
+    const btnMenos = li.querySelector<HTMLButtonElement>('button[data-d="-1"]');
+    if (btnMenos) btnMenos.disabled = valorFinal <= min;
+    // Guardado exclusivamente local (borrador en el celular). NO sube a Supabase.
+    guardarLocal(d);
+    pintarEstado();
   }
 
   /** Mesa anterior o siguiente dentro del distrito. */
@@ -371,7 +412,22 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const li = b?.closest<HTMLElement>('.fila');
     const input = li?.querySelector('input');
     if (!b || !li || !input) return;
-    const n = Math.max(0, entero(input.value) + Number(b.dataset.d));
+    const min = Number(li.dataset.min ?? 0);
+    const actualVal = entero(input.value);
+    const delta = Number(b.dataset.d);
+    if (delta < 0 && actualVal <= min) {
+      if (min > 0) {
+        Swal.fire({
+          ...swalConfig(),
+          icon: 'warning',
+          title: 'Límite alcanzado',
+          html: `Ya se registraron <b>${min} votos</b> para este partido.<br><br>No puedes reducir una cantidad ya registrada en el sistema.`,
+          confirmButtonText: 'Entendido',
+        });
+      }
+      return;
+    }
+    const n = Math.max(min, actualVal + delta);
     input.value = String(n);
     cambiar(li, n);
   });
@@ -379,13 +435,35 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   columnas.addEventListener('input', (e) => {
     const input = e.target as HTMLInputElement;
     const li = input.closest<HTMLElement>('.fila');
-    if (input.tagName === 'INPUT' && li) cambiar(li, entero(input.value));
+    if (input.tagName === 'INPUT' && li) {
+      const val = entero(input.value);
+      cambiar(li, val);
+    }
   });
 
-  // Al salir del campo, muestra el valor normalizado (sin negativos ni decimales).
+  // Al salir del campo, valida que no sea menor al mínimo registrado
   columnas.addEventListener('change', (e) => {
     const input = e.target as HTMLInputElement;
-    if (input.tagName === 'INPUT') input.value = String(entero(input.value));
+    const li = input.closest<HTMLElement>('.fila');
+    if (input.tagName === 'INPUT' && li) {
+      const min = Number(li.dataset.min ?? 0);
+      const val = entero(input.value);
+      const nombre = li.dataset.nombre || 'este partido';
+      if (val < min) {
+        input.value = String(min);
+        cambiar(li, min);
+        Swal.fire({
+          ...swalConfig(),
+          icon: 'warning',
+          title: 'Cantidad no permitida',
+          html: `<b>${nombre}</b> ya tiene <b>${min} votos registrados</b>.<br><br>El valor ingresado no puede ser menor a ${min}; debe ser <b>mayor o igual a ${min}</b>.`,
+          confirmButtonText: 'Entendido',
+        });
+        return;
+      }
+      input.value = String(val);
+      cambiar(li, val);
+    }
   });
 
   columnas.addEventListener('focusin', (e) => {
@@ -422,6 +500,40 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const { mesa, cols } = actual();
     if (!mesa) return;
 
+    // 1. Validar que ningún voto sea menor al mínimo registrado previamente
+    for (const col of cols) {
+      for (const p of col.partidos) {
+        const v = votosDe(mesa, col.id, p.id);
+        const min = minimoPermitido(mesa.id, col.id, p.id);
+        if (v < min) {
+          Swal.fire({
+            ...swalConfig(),
+            icon: 'error',
+            title: 'Cantidad no permitida',
+            html: `El partido <b>${esc(p.nombre)}</b> tiene ${v} votos, pero ya se habían registrado <b>${min} votos</b>.<br><br>Debe ser mayor o igual a ${min}.`,
+            confirmButtonText: 'Corregir',
+          });
+          return;
+        }
+      }
+      for (const esp of [BLANCO, NULO]) {
+        const v = votosDe(mesa, col.id, esp);
+        const min = minimoPermitido(mesa.id, col.id, esp);
+        if (v < min) {
+          const nom = esp === BLANCO ? 'Votos en blanco' : 'Votos nulos';
+          Swal.fire({
+            ...swalConfig(),
+            icon: 'error',
+            title: 'Cantidad no permitida',
+            html: `Los <b>${nom}</b> tienen ${v}, pero ya se habían registrado <b>${min} votos</b>.<br><br>Debe ser mayor o igual a ${min}.`,
+            confirmButtonText: 'Corregir',
+          });
+          return;
+        }
+      }
+    }
+
+    // 2. Advertencia preventiva si faltan columnas por llenar
     const totales = cols.map((col) => ({ col, r: resumen(col, [mesa]) }));
     const faltan = totales.filter((t) => t.r.emitidos === 0);
     const algunoTiene = totales.some((t) => t.r.emitidos > 0);
@@ -460,15 +572,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       guardar(d);
       const res = await subirAhora(d);
       if (res.ok) {
+        marcarVotosConfirmados(mesa.id, mesa.votos ?? {});
         Swal.fire({
           ...swalConfig(),
           icon: 'success',
           title: '¡Mesa Enviada!',
-          text: res.mensaje || `Los votos de la Mesa ${mesa.numero} se guardaron exitosamente.`,
+          text: res.mensaje || `Los votos de la Mesa ${mesa.numero} se guardaron exitosamente en la central.`,
           timer: 2300,
           showConfirmButton: false,
         });
       } else if (res.estado === 'pendiente') {
+        marcarVotosConfirmados(mesa.id, mesa.votos ?? {});
         Swal.fire({
           ...swalConfig(),
           icon: 'info',

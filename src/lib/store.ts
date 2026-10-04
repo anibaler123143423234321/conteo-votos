@@ -217,6 +217,11 @@ export function cargar(): Datos {
   return datosIniciales();
 }
 
+/** Guarda solo en este navegador (borrador local sin subir automáticamente a la nube). */
+export function guardarLocal(d: Datos): boolean {
+  return guardarCopia(d);
+}
+
 /** Guarda en este navegador y, si hay nube, sube los cambios al rato. */
 export function guardar(d: Datos): boolean {
   const ok = guardarCopia(d);
