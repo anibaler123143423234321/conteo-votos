@@ -149,6 +149,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
   let chartDistritos: Chart | null = null;
   let chartMesas: Chart | null = null;
+  // Datos del avance por distrito que lee el texto del gráfico (se actualiza en cada repintado:
+  // si leyera los del momento en que se creó el gráfico, quedarían viejos).
+  let avanceDistritos: { pctTexto: string; contadas: number; total: number }[] = [];
 
   function coloresTema() {
     const isDark = document.documentElement.dataset.theme === 'dark';
@@ -215,6 +218,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       };
     });
 
+    avanceDistritos = distritosDatos;
     const canvasDistritos = $<HTMLCanvasElement>('chart-resumen-distritos');
     const labelsDistritos = distritosDatos.map((x) => x.nombre);
     const dataComputadas = distritosDatos.map((x) => x.contadas);
@@ -285,7 +289,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
               callbacks: {
                 afterTitle: (items) => {
                   const idx = items[0]?.dataIndex ?? 0;
-                  const item = distritosDatos[idx];
+                  const item = avanceDistritos[idx];
                   return `Avance: ${item?.pctTexto || '0%'} (${item?.contadas || 0} de ${item?.total || 0} mesas)`;
                 },
               },

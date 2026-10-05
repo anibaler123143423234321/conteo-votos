@@ -171,6 +171,10 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
   let chartBarras: Chart | null = null;
   let chartDonut: Chart | null = null;
+  // Lo que muestran los gráficos ahora. Los textos de los gráficos (nombres al costado de las
+  // barras, porcentajes) leen de aquí: si usaran las variables del momento en que se creó el
+  // gráfico, al cambiar de columna quedarían los nombres y totales de la primera.
+  const enGrafico = { nombres: [] as string[], validos: 0, emitidos: 0 };
   let ultimosResumenes: Resumen[] = [];
   let ultimasCols: Columna[] = [];
   let ultimasMesas: Mesa[] = [];
@@ -292,6 +296,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     const r = ultimosResumenes[tab];
     const col = ultimasCols[tab];
     if (!r || !col) return;
+    enGrafico.validos = r.validos;
+    enGrafico.emitidos = r.emitidos;
     const c = coloresTema();
 
     // Actualizar encabezado
@@ -347,6 +353,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       canvasBarras.style.display = 'block';
 
       const labels = filas.map((x) => x.partido.nombre);
+      enGrafico.nombres = labels;
       const dataVotos = filas.map((x) => x.votos);
       const bgColors = filas.map((_, i) => PALETA_PARTIDOS[i % PALETA_PARTIDOS.length]);
 
@@ -354,6 +361,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
         chartBarras.data.labels = labels;
         chartBarras.data.datasets[0].data = dataVotos;
         chartBarras.data.datasets[0].backgroundColor = bgColors;
+        (chartBarras.data.datasets[0] as { barThickness?: number }).barThickness = filas.length > 8 ? 16 : 22;
         chartBarras.options.scales!.x!.grid!.color = c.gridColor;
         chartBarras.options.scales!.x!.ticks!.color = c.mutedColor;
         chartBarras.options.scales!.y!.ticks!.color = c.textColor;
@@ -396,7 +404,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
                 callbacks: {
                   label: (ctx) => {
                     const val = ctx.raw as number;
-                    return ` ${fmt(val)} votos (${pct(val, r.validos)} de válidos)`;
+                    return ` ${fmt(val)} votos (${pct(val, enGrafico.validos)} de válidos)`;
                   },
                 },
               },
@@ -417,7 +425,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
                   color: c.textColor,
                   font: { family: 'inherit', weight: 600, size: 12 },
                   callback: function (_val, index) {
-                    const nombre = labels[index] || '';
+                    const nombre = enGrafico.nombres[index] || '';
                     return nombre.length > 24 ? nombre.slice(0, 22) + '…' : nombre;
                   },
                 },
@@ -445,6 +453,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       chartDonut.data.datasets[0].data = donutData;
       chartDonut.data.datasets[0].backgroundColor = donutColors;
       chartDonut.data.datasets[0].borderColor = c.surface;
+      (chartDonut.data.datasets[0] as { hoverOffset?: number }).hoverOffset = r.emitidos > 0 ? 6 : 0;
       chartDonut.options.plugins!.tooltip!.backgroundColor = c.tooltipBg;
       chartDonut.options.plugins!.tooltip!.titleColor = c.textColor;
       chartDonut.options.plugins!.tooltip!.bodyColor = c.textColor;
@@ -481,9 +490,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
               padding: 10,
               callbacks: {
                 label: (ctx) => {
-                  if (r.emitidos === 0) return ' Esperando ingreso de votos';
+                  if (enGrafico.emitidos === 0) return ' Esperando ingreso de votos';
                   const val = ctx.raw as number;
-                  return ` ${fmt(val)} votos (${pct(val, r.emitidos)} del total)`;
+                  return ` ${fmt(val)} votos (${pct(val, enGrafico.emitidos)} del total)`;
                 },
               },
             },
