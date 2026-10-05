@@ -650,6 +650,13 @@ input[type='number']::-webkit-outer-spin-button {
   grid-template-columns: minmax(0, 190px) minmax(0, 1fr) minmax(0, 130px) minmax(0, 150px);
 }
 
+/* Conteo: con el buscador de mesas al lado de Mesa. Ocupa toda la fila (el estado de la
+   mesa pasa abajo), si no los nombres de distrito, colegio y aula quedan cortados. */
+.selectores.con-buscar {
+  flex-basis: 100%;
+  grid-template-columns: minmax(0, 190px) minmax(0, 1fr) minmax(0, 140px) minmax(0, 190px) minmax(0, 160px) auto;
+}
+
 @media (min-width: 768px) {
   .selectores .campo {
     gap: 6px;
@@ -716,6 +723,19 @@ input[type='number']::-webkit-outer-spin-button {
       'distrito distrito nav'
       'colegio colegio colegio'
       'aula mesa mesa';
+  }
+
+  .selectores.con-buscar {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+    grid-template-areas:
+      'distrito distrito nav'
+      'colegio colegio colegio'
+      'aula mesa mesa'
+      'buscar buscar buscar';
+  }
+
+  .selectores .campo-buscar {
+    grid-area: buscar;
   }
 
   .selectores.sin-nav {

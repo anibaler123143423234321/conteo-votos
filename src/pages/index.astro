@@ -8,7 +8,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <h1 class="sr-only">Conteo por mesa</h1>
 
   <section class="card barra-sel" aria-label="Elegir mesa">
-    <div class="selectores">
+    <div class="selectores con-buscar">
       <label class="campo campo-distrito">
         <span class="campo-et">Distrito</span>
         <select id="sel-distrito"></select>
@@ -25,6 +25,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <span class="campo-et">Mesa</span>
         <select id="sel-mesa"></select>
       </label>
+      <div class="campo campo-buscar">
+        <label class="campo-et" for="buscar-mesa">Buscar</label>
+        <input
+          id="buscar-mesa"
+          type="search"
+          inputmode="numeric"
+          placeholder="N° de mesa"
+          autocomplete="off"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="buscar-resultados"
+        />
+        <ul class="buscar-resultados" id="buscar-resultados" role="listbox" hidden></ul>
+      </div>
       <div class="nav-mesa">
         <button type="button" class="btn icono" id="anterior" aria-label="Mesa anterior" title="Mesa anterior">‹</button>
         <button type="button" class="btn icono" id="siguiente" aria-label="Mesa siguiente" title="Mesa siguiente">›</button>
@@ -101,6 +115,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     ubicarMesa,
     type Columna,
     type Mesa,
+    type Ubicada,
     type Votos,
   } from '../lib/store';
   import {
@@ -452,6 +467,83 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (btnMenos) btnMenos.disabled = valorFinal <= min;
     pintarEstado();
   }
+
+  // ================= Buscador de mesas =================
+  // Como el de Administración › Mesas: por número, en toda la provincia. Al elegir una mesa
+  // se ponen solos el distrito, el colegio y el aula.
+  const buscarMesa = $<HTMLInputElement>('buscar-mesa');
+  const buscarResultados = $('buscar-resultados');
+  let encontradas: Ubicada[] = [];
+  let marcada = 0;
+
+  function cerrarBusqueda() {
+    buscarResultados.hidden = true;
+    buscarMesa.setAttribute('aria-expanded', 'false');
+  }
+
+  function pintarBusqueda() {
+    const q = buscarMesa.value.trim();
+    if (!q) return cerrarBusqueda();
+    // Primero las que coinciden exacto, luego las que empiezan así, luego el resto.
+    const puesto = (n: string) => (n === q ? 0 : n.startsWith(q) ? 1 : 2);
+    encontradas = mesas(d)
+      .filter((u) => u.mesa.numero.includes(q))
+      .sort((a, b) => puesto(a.mesa.numero) - puesto(b.mesa.numero))
+      .slice(0, 8);
+    marcada = 0;
+    buscarResultados.innerHTML = encontradas.length
+      ? encontradas
+          .map(
+            (u, i) => `
+        <li role="option" id="buscar-op-${i}" data-m="${esc(u.mesa.id)}" aria-selected="${i === marcada}">
+          <b>${esc(u.mesa.numero)}</b>
+          <span>${esc(u.colegio.nombre)} · ${esc(u.aula.nombre)}${u.distrito.id === sel.di ? '' : ` · ${esc(u.distrito.corto ?? u.distrito.nombre)}`}</span>
+        </li>`,
+          )
+          .join('')
+      : `<li class="buscar-nada">No hay ninguna mesa con «${esc(q)}»</li>`;
+    buscarResultados.hidden = false;
+    buscarMesa.setAttribute('aria-expanded', 'true');
+  }
+
+  function marcar(i: number) {
+    if (!encontradas.length) return;
+    marcada = (i + encontradas.length) % encontradas.length;
+    buscarResultados.querySelectorAll('[role="option"]').forEach((li, j) => li.setAttribute('aria-selected', String(j === marcada)));
+    buscarMesa.setAttribute('aria-activedescendant', `buscar-op-${marcada}`);
+  }
+
+  function irAMesaBuscada(id: string) {
+    const u = ubicarMesa(d, id);
+    if (!u) return;
+    sel = { di: u.distrito.id, c: u.colegio.id, a: u.aula.id, m: u.mesa.id };
+    buscarMesa.value = '';
+    cerrarBusqueda();
+    buscarMesa.blur();
+    pintar();
+  }
+
+  buscarMesa.addEventListener('input', pintarBusqueda);
+  buscarMesa.addEventListener('focus', pintarBusqueda);
+  buscarMesa.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      marcar(marcada + (e.key === 'ArrowDown' ? 1 : -1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (encontradas[marcada]) irAMesaBuscada(encontradas[marcada].mesa.id);
+    } else if (e.key === 'Escape') {
+      cerrarBusqueda();
+    }
+  });
+  // mousedown (no click): así se elige antes de que el campo pierda el foco y cierre la lista.
+  buscarResultados.addEventListener('mousedown', (e) => {
+    const li = (e.target as HTMLElement).closest<HTMLElement>('[data-m]');
+    if (!li) return;
+    e.preventDefault();
+    irAMesaBuscada(li.dataset.m!);
+  });
+  buscarMesa.addEventListener('blur', cerrarBusqueda);
 
   /** Mesa anterior o siguiente dentro del distrito. */
   function irA(paso: number) {
@@ -977,6 +1069,60 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     .dock-limpiar-texto {
       display: none;
     }
+  }
+
+  /* ================= Buscador de mesas ================= */
+  .campo-buscar {
+    position: relative;
+  }
+
+  .buscar-resultados {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    width: max(100%, 320px);
+    max-width: calc(100vw - 24px);
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 28px -6px rgb(0 0 0 / 0.22);
+  }
+
+  .buscar-resultados :global(li) {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .buscar-resultados :global(li[aria-selected='true']),
+  .buscar-resultados :global(li[data-m]:hover) {
+    background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
+  }
+
+  .buscar-resultados :global(b) {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .buscar-resultados :global(span) {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .buscar-resultados :global(.buscar-nada) {
+    color: var(--muted);
+    font-size: 13px;
+    cursor: default;
   }
 
   /* ================= Modo corrección (administrador) ================= */
