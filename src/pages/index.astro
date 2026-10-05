@@ -59,6 +59,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <span class="dock-pulso" id="dock-pulso"></span>
         <span class="dock-texto" id="dock-texto">Mesa lista</span>
       </div>
+      <button type="button" class="dock-btn-limpiar" id="btn-limpiar-mesa" title="Borrar lo anotado sin enviar" aria-label="Limpiar">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" width="14" height="14" aria-hidden="true">
+          <path d="M4 4l12 12M16 4L4 16"/>
+        </svg>
+        <span class="dock-limpiar-texto">Limpiar</span>
+      </button>
       <button type="button" class="dock-btn-enviar" id="btn-guardar-mesa">
         <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
           <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
@@ -127,6 +133,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const dockPulso = $('dock-pulso');
   const btnGuardarMesa = $<HTMLButtonElement>('btn-guardar-mesa');
   const btnGuardarTexto = $('btn-guardar-texto');
+  const btnLimpiarMesa = $<HTMLButtonElement>('btn-limpiar-mesa');
+  /** Mientras se envía, los botones del dock quedan bloqueados. */
+  let enviando = false;
 
   let sel = { di: '', c: '', a: '', m: '' };
   let tab = 0;
@@ -394,6 +403,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       dockFlotante.hidden = false;
       const emitidos = Math.max(0, ...ns);
       const hayPendientes = mesaTieneCambiosSinEnviar(mesa);
+      // Sin ningún voto no hay nada que enviar; Limpiar solo sirve si hay algo sin enviar.
+      btnGuardarMesa.disabled = enviando || emitidos === 0;
+      btnGuardarMesa.title = emitidos === 0 ? 'Anota al menos un voto para enviar' : '';
+      btnLimpiarMesa.disabled = enviando || !hayPendientes;
 
       if (hayPendientes) {
         dockPulso.className = 'dock-pulso warn';
@@ -550,6 +563,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     if (!mesa) return;
 
     const votosAEnviar = votosConBorrador(mesa);
+    const mesaVotos: Mesa = { ...mesa, votos: votosAEnviar };
+    if (cols.every((col) => resumen(col, [mesaVotos]).emitidos === 0)) {
+      Swal.fire({
+        ...swalConfig(),
+        icon: 'info',
+        title: 'Mesa sin votos',
+        text: 'Todos los votos están en 0. Anota los votos del acta antes de enviar.',
+        confirmButtonText: 'Entendido',
+      });
+      return;
+    }
 
     // 1. Validar que ningún voto sea menor al mínimo registrado previamente
     for (const col of cols) {
@@ -617,7 +641,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     });
     if (!conf.isConfirmed) return;
 
+    enviando = true;
     btnGuardarMesa.disabled = true;
+    btnLimpiarMesa.disabled = true;
     btnGuardarTexto.textContent = 'Enviando…';
 
     Swal.fire({
@@ -673,13 +699,38 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         confirmButtonText: 'Entendido',
       });
     } finally {
-      btnGuardarMesa.disabled = false;
+      enviando = false;
       btnGuardarTexto.textContent = 'Enviar a la central';
       pintar();
     }
   }
 
   btnGuardarMesa?.addEventListener('click', enviarVotosMesa);
+
+  /** Borra lo anotado en esta mesa sin enviar: vuelve a 0 (o a lo ya registrado en la central). */
+  async function limpiarMesa() {
+    const { mesa } = actual();
+    if (!mesa || !mesaTieneCambiosSinEnviar(mesa)) return;
+    const registrada = Object.values(mesa.votos ?? {}).some((c) => Object.values(c).some((n) => n > 0));
+    const conf = await Swal.fire({
+      ...swalConfig(),
+      title: `¿Limpiar Mesa ${mesa.numero}?`,
+      text: registrada
+        ? 'Se borra lo anotado sin enviar y la mesa vuelve a los votos ya registrados en la central.'
+        : 'Se borra todo lo anotado y la mesa queda en 0.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, limpiar',
+      cancelButtonText: 'Cancelar',
+      reverseButtons: true,
+      focusCancel: true,
+    });
+    if (!conf.isConfirmed) return;
+    limpiarBorradorMesa(mesa.id);
+    pintar();
+  }
+
+  btnLimpiarMesa?.addEventListener('click', limpiarMesa);
 
   pintar();
   conectar(d, pintar);
@@ -801,9 +852,51 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   .dock-btn-enviar:disabled {
-    opacity: 0.65;
-    cursor: wait;
+    opacity: 0.5;
+    cursor: not-allowed;
     transform: none;
+    box-shadow: none;
+  }
+
+  .dock-btn-limpiar {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 38px;
+    padding: 0 12px;
+    margin-left: auto;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .dock-btn-limpiar:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .dock-btn-limpiar:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* En celulares, solo el icono: así se lee la mesa y los votos. */
+  @media (max-width: 480px) {
+    .dock-btn-limpiar {
+      width: 38px;
+      padding: 0;
+      justify-content: center;
+    }
+
+    .dock-limpiar-texto {
+      display: none;
+    }
   }
 
   /* ================= SweetAlert2 Theme ================= */
