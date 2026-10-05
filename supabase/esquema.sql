@@ -120,6 +120,41 @@ create trigger votos_mesa_tocar
   before insert or update on public.votos_mesa
   for each row execute function public.tocar_votos();
 
+-- Une los votos que ya están con los que llegan, casilla por casilla (columna → partido): así
+-- dos personeros en la misma mesa no se pisan, cada uno solo cambia las casillas que anotó.
+create or replace function public.conteo_unir_votos(actual jsonb, cambios jsonb) returns jsonb
+language sql immutable set search_path = ''
+as $$
+  select coalesce(actual, '{}'::jsonb) || coalesce((
+    select jsonb_object_agg(
+      c.key,
+      case when jsonb_typeof(actual -> c.key) = 'object' then actual -> c.key else '{}'::jsonb end || c.value
+    )
+    from jsonb_each(coalesce(cambios, '{}'::jsonb)) as c
+    where jsonb_typeof(c.value) = 'object'
+  ), '{}'::jsonb)
+$$;
+
+-- Guarda solo las casillas cambiadas de varias mesas: [{ "mesa_id": "…", "votos": { … } }, …].
+-- Devuelve cómo quedó cada mesa. Usa la seguridad (RLS) de votos_mesa: no es security definer.
+create or replace function public.conteo_guardar_votos(cambios jsonb)
+returns setof public.votos_mesa
+language plpgsql set search_path = ''
+as $$
+declare
+  c jsonb;
+begin
+  for c in select * from jsonb_array_elements(cambios) loop
+    return query
+      insert into public.votos_mesa as v (mesa_id, votos)
+      values (c ->> 'mesa_id', public.conteo_unir_votos('{}'::jsonb, c -> 'votos'))
+      on conflict (mesa_id) do update
+        set votos = public.conteo_unir_votos(v.votos, excluded.votos)
+      returning v.*;
+  end loop;
+end;
+$$;
+
 -- ================= Quién puede entrar =================
 -- Los administradores lo manejan todo y crean a los demás desde la web (Administración ›
 -- Usuarios); los personeros solo anotan votos. Una cuenta que no está en esta tabla, o que
@@ -306,7 +341,9 @@ revoke execute on function public.conteo_dar_acceso(text, text, text) from publi
 revoke execute on function public.conteo_cambiar_clave(uuid, text) from public, anon;
 revoke execute on function public.conteo_hacer_admin(text) from public, anon, authenticated;
 revoke execute on function public.conteo_queda_admin() from public, anon, authenticated;
+revoke execute on function public.conteo_guardar_votos(jsonb) from public, anon;
 grant execute on function public.conteo_rol() to authenticated;
+grant execute on function public.conteo_guardar_votos(jsonb) to authenticated;
 grant execute on function public.conteo_dar_acceso(text, text, text) to authenticated;
 grant execute on function public.conteo_cambiar_clave(uuid, text) to authenticated;
 

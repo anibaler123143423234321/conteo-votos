@@ -141,6 +141,8 @@ function rolGuardado(id?: string): Rol | null | undefined {
 const sinEsquema = (e: unknown) =>
   ['PGRST202', 'PGRST205', '42P01', '42883'].includes(String((e as { code?: unknown } | null)?.code ?? ''));
 const AVISO_ESQUEMA = 'Falta correr supabase/esquema.sql en Supabase › SQL Editor (la versión nueva, con usuarios).';
+const AVISO_VOTOS =
+  'Falta volver a correr supabase/esquema.sql: sin conteo_guardar_votos, dos personeros en la misma mesa se pueden pisar.';
 
 /** Pregunta a Supabase qué puede hacer esta cuenta y lo recuerda para cuando no haya señal. */
 async function averiguarRol(): Promise<Rol | null> {
@@ -304,6 +306,79 @@ function guardarBase() {
 const lotes = <T>(lista: T[], n: number) =>
   Array.from({ length: Math.ceil(lista.length / n) }, (_, i) => lista.slice(i * n, i * n + n));
 
+/** Casillas (columna → partido) que cambiaron de `antes` a `ahora`; las que ya no están van en 0. */
+function casillasCambiadas(antes: Votos, ahora: Votos): Votos {
+  const cambios: Votos = {};
+  for (const col of new Set([...Object.keys(antes), ...Object.keys(ahora)])) {
+    for (const p of new Set([...Object.keys(antes[col] ?? {}), ...Object.keys(ahora[col] ?? {})])) {
+      const n = Number(ahora[col]?.[p] ?? 0);
+      if (n !== Number(antes[col]?.[p] ?? 0)) (cambios[col] ??= {})[p] = n;
+    }
+  }
+  return cambios;
+}
+
+/** El Supabase todavía no tiene conteo_guardar_votos (falta volver a correr esquema.sql). */
+let votosPorFilaCompleta = false;
+
+/**
+ * Sube los votos casilla por casilla: solo lo que se cambió aquí. Supabase lo une con lo que
+ * ya tiene la mesa, así dos personeros en la misma mesa no se borran lo anotado.
+ */
+async function subirVotos(d: Datos, cambios: [string, string][]) {
+  const sb = await cliente();
+  const actual = base!.votos_mesa;
+  const porMesa = new Map(
+    d.distritos.flatMap((x) => x.colegios.flatMap((c) => c.aulas.flatMap((a) => a.mesas.map((m) => [m.id, m] as const)))),
+  );
+  let repintarLuego = false;
+  for (const lote of lotes(cambios, 200)) {
+    const envio = lote
+      .map(([k, v]) => {
+        const antes = (actual.has(k) ? JSON.parse(actual.get(k)!).votos : {}) as Votos;
+        return { mesa_id: k, votos: casillasCambiadas(antes, JSON.parse(v).votos as Votos), enviado: v };
+      })
+      .filter((x) => {
+        // Solo cambió la forma (p. ej. una casilla en 0 que ya no está): nada que subir.
+        if (Object.keys(x.votos).length) return true;
+        actual.set(x.mesa_id, x.enviado);
+        return false;
+      });
+    if (!envio.length) continue;
+    const { data, error } = await sb.rpc('conteo_guardar_votos', {
+      cambios: envio.map(({ mesa_id, votos }) => ({ mesa_id, votos })),
+    });
+    if (error) {
+      if (!sinEsquema(error)) throw error;
+      // Supabase sin actualizar: se sube como antes (la mesa entera) para no dejar de guardar.
+      console.warn(AVISO_VOTOS);
+      votosPorFilaCompleta = true;
+      const { error: e2 } = await sb.from('votos_mesa').upsert(
+        envio.map((x) => JSON.parse(x.enviado)),
+        { onConflict: 'mesa_id' },
+      );
+      if (e2) throw e2;
+      for (const x of envio) actual.set(x.mesa_id, x.enviado);
+      continue;
+    }
+    // Cómo quedó cada mesa en la nube (con lo que anotaron los demás) pasa a esta página.
+    const enviados = new Map(envio.map((x) => [x.mesa_id, x.enviado]));
+    for (const r of (data ?? []) as { mesa_id: string; votos: Votos }[]) {
+      const fila = canon({ mesa_id: r.mesa_id, votos: r.votos });
+      actual.set(r.mesa_id, fila);
+      const mesa = porMesa.get(r.mesa_id);
+      // Si aquí se volvió a cambiar la mesa mientras se subía, eso se sube en la siguiente vuelta.
+      if (!mesa || canon({ mesa_id: mesa.id, votos: mesa.votos }) !== enviados.get(r.mesa_id)) continue;
+      if (fila !== enviados.get(r.mesa_id)) repintarLuego = true;
+      mesa.votos = structuredClone(r.votos);
+    }
+  }
+  if (repintarLuego) {
+    guardarCopia(d);
+    repintar();
+  }
+}
+
 /** Sube solo lo que cambió respecto de la base: primero altas (de padres a hijos), luego bajas. */
 async function subir(d: Datos) {
   const sb = await cliente();
@@ -314,6 +389,10 @@ async function subir(d: Datos) {
   try {
     for (const t of tablas) {
       const cambios = [...nuevo[t]].filter(([k, v]) => actual[t].get(k) !== v);
+      if (t === 'votos_mesa' && !votosPorFilaCompleta) {
+        await subirVotos(d, cambios);
+        continue;
+      }
       for (const lote of lotes(cambios, 500)) {
         const { error } = await sb.from(t).upsert(
           lote.map(([, v]) => JSON.parse(v)),

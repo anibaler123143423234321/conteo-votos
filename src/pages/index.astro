@@ -91,6 +91,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     ubicarMesa,
     type Columna,
     type Mesa,
+    type Votos,
   } from '../lib/store';
   import {
     conectar,
@@ -258,10 +259,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   function ponerVotoBorrador(mesa: Mesa, colId: string, pId: string, n: number) {
+    // Solo las casillas que se anotaron aquí: al enviar no se pisa lo que otro personero
+    // anotó en las demás casillas de la misma mesa.
     const borrador = obtenerBorradorMesa(mesa.id);
-    if (!Object.keys(borrador).length && mesa.votos) {
-      Object.assign(borrador, structuredClone(mesa.votos));
-    }
     (borrador[colId] ??= {})[pId] = entero(n);
     guardarBorradorMesa(mesa.id, borrador);
   }
@@ -269,17 +269,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   function mesaTieneCambiosSinEnviar(mesa: Mesa): boolean {
     const borrador = obtenerBorradorMesa(mesa.id);
     if (!Object.keys(borrador).length) return false;
-    const oficiales = mesa.votos ?? {};
-    const cols = new Set([...Object.keys(borrador), ...Object.keys(oficiales)]);
-    for (const c of cols) {
-      const p1 = borrador[c] ?? {};
-      const p2 = oficiales[c] ?? {};
-      const partidos = new Set([...Object.keys(p1), ...Object.keys(p2)]);
-      for (const p of partidos) {
-        if (Number(p1[p] ?? 0) !== Number(p2[p] ?? 0)) return true;
+    for (const c of Object.keys(borrador)) {
+      for (const p of Object.keys(borrador[c])) {
+        if (Number(borrador[c][p] ?? 0) !== votosDe(mesa, c, p)) return true;
       }
     }
     return false;
+  }
+
+  /** Votos de la mesa con lo anotado aquí encima (lo que se ve en pantalla). */
+  function votosConBorrador(mesa: Mesa): Votos {
+    const v: Votos = structuredClone(mesa.votos ?? {});
+    const borrador = obtenerBorradorMesa(mesa.id);
+    for (const c of Object.keys(borrador)) Object.assign((v[c] ??= {}), borrador[c]);
+    return v;
   }
 
   function fila(mesa: Mesa, col: string, p: string, num: string, nombre: string) {
@@ -343,8 +346,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     chequeo.hidden = !mesa;
     if (!mesa) return;
 
-    const borrador = obtenerBorradorMesa(mesa.id);
-    const votosTrabajo = Object.keys(borrador).length ? borrador : (mesa.votos ?? {});
+    const votosTrabajo = votosConBorrador(mesa);
     const mesaTrabajo: Mesa = { ...mesa, votos: votosTrabajo };
 
     const totales = cols.map((col) => ({ col, r: resumen(col, [mesaTrabajo]) }));
@@ -547,8 +549,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     const { mesa, cols } = actual();
     if (!mesa) return;
 
-    const borrador = obtenerBorradorMesa(mesa.id);
-    const votosAEnviar = Object.keys(borrador).length ? borrador : (mesa.votos ?? {});
+    const votosAEnviar = votosConBorrador(mesa);
 
     // 1. Validar que ningún voto sea menor al mínimo registrado previamente
     for (const col of cols) {
