@@ -168,10 +168,15 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       sel.c,
     );
     opciones(selAula, colegio?.aulas ?? [], sel.a);
-    opciones(selMesa, (aula?.mesas ?? []).map((m) => ({ id: m.id, nombre: m.numero })), sel.m);
+    // Todas las mesas del colegio, con su aula, para no tener que adivinar en qué aula está cada una.
+    opciones(
+      selMesa,
+      (colegio?.aulas ?? []).flatMap((a) => a.mesas.map((m) => ({ id: m.id, nombre: `${m.numero} · ${a.nombre}` }))),
+      sel.m,
+    );
     selColegio.disabled = !distrito?.colegios.length;
     selAula.disabled = !colegio?.aulas.length;
-    selMesa.disabled = !aula?.mesas.length;
+    selMesa.disabled = !colegio?.aulas.some((a) => a.mesas.length);
     porConfirmar.hidden = !mesa || !!distrito?.confirmado;
 
     vacio.hidden = !!mesa;
@@ -433,7 +438,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     pintar();
   });
   selMesa.addEventListener('change', () => {
-    sel = { ...sel, m: selMesa.value };
+    // Al elegir la mesa se pone sola su aula.
+    const aula = actual().colegio?.aulas.find((a) => a.mesas.some((m) => m.id === selMesa.value));
+    sel = { ...sel, a: aula?.id ?? sel.a, m: selMesa.value };
     pintar();
   });
   anterior.addEventListener('click', () => irA(-1));
