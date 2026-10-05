@@ -36,6 +36,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <span class="chip" id="por-confirmar" title="Los números de mesa de este distrito son de la segunda vuelta de junio. Revísalos y corrígelos en Colegios." hidden>
           N° por confirmar
         </span>
+        <span class="chip warn chip-correccion" id="modo-correccion" hidden>
+          ✎ Modo corrección
+          <button type="button" class="enlace-salir" id="salir-correccion">Salir</button>
+        </span>
         <span class="chip" id="chequeo"></span>
         <span class="chip" id="guardado"></span>
         <span class="chip" data-nube hidden></span>
@@ -100,6 +104,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     type Votos,
   } from '../lib/store';
   import {
+    alRol,
     conectar,
     nubeActiva,
     subirAhora,
@@ -136,6 +141,22 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const btnLimpiarMesa = $<HTMLButtonElement>('btn-limpiar-mesa');
   /** Mientras se envía, los botones del dock quedan bloqueados. */
   let enviando = false;
+
+  // Modo corrección: el administrador, con la clave, puede bajar votos ya enviados (y dejar
+  // una mesa en 0). Se abre desde Administración › Corregir votos (/?corregir).
+  // La clave solo evita correcciones por error: lo que de verdad protege es que solo una
+  // cuenta de administrador puede entrar a este modo.
+  const CLAVE_CORRECCION = 'conteo-votos:correccion';
+  // SHA-256 de la clave (no se guarda la clave escrita en el código).
+  const HUELLA_CLAVE = '580ade0f132b4228ea4fe1a289f318f2402fdcd2682ed057a3785fed4312f9f3';
+  const modoCorreccionEl = $('modo-correccion');
+  const pideCorreccion = new URLSearchParams(location.search).has('corregir');
+  let modoCorreccion = false;
+  try {
+    modoCorreccion = sessionStorage.getItem(CLAVE_CORRECCION) === '1';
+  } catch {
+    // Sin sessionStorage: se vuelve a pedir la clave.
+  }
 
   let sel = { di: '', c: '', a: '', m: '' };
   let tab = 0;
@@ -235,6 +256,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   function minimoPermitido(mesaId: string, colId: string, partidoId: string): number {
+    if (modoCorreccion) return 0;
     const confirmados = obtenerVotosConfirmados(mesaId);
     return Number(confirmados?.[colId]?.[partidoId] ?? 0);
   }
@@ -404,8 +426,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       const emitidos = Math.max(0, ...ns);
       const hayPendientes = mesaTieneCambiosSinEnviar(mesa);
       // Sin ningún voto no hay nada que enviar; Limpiar solo sirve si hay algo sin enviar.
-      btnGuardarMesa.disabled = enviando || emitidos === 0;
-      btnGuardarMesa.title = emitidos === 0 ? 'Anota al menos un voto para enviar' : '';
+      const sinVotos = emitidos === 0 && !modoCorreccion;
+      btnGuardarMesa.disabled = enviando || sinVotos;
+      btnGuardarMesa.title = sinVotos ? 'Anota al menos un voto para enviar' : '';
       btnLimpiarMesa.disabled = enviando || !hayPendientes;
 
       if (hayPendientes) {
@@ -564,7 +587,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
     const votosAEnviar = votosConBorrador(mesa);
     const mesaVotos: Mesa = { ...mesa, votos: votosAEnviar };
-    if (cols.every((col) => resumen(col, [mesaVotos]).emitidos === 0)) {
+    if (!modoCorreccion && cols.every((col) => resumen(col, [mesaVotos]).emitidos === 0)) {
       Swal.fire({
         ...swalConfig(),
         icon: 'info',
@@ -732,6 +755,63 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   btnLimpiarMesa?.addEventListener('click', limpiarMesa);
 
+  async function huella(texto: string) {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
+    return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function ponerModoCorreccion(activo: boolean) {
+    modoCorreccion = activo;
+    try {
+      if (activo) sessionStorage.setItem(CLAVE_CORRECCION, '1');
+      else sessionStorage.removeItem(CLAVE_CORRECCION);
+    } catch {
+      // Sin sessionStorage: vale solo mientras la página esté abierta.
+    }
+    modoCorreccionEl.hidden = !activo;
+    document.body.classList.toggle('modo-correccion', activo);
+    pintar();
+  }
+
+  async function pedirClaveCorreccion() {
+    const res = await Swal.fire({
+      ...swalConfig(),
+      title: 'Modo corrección',
+      text: 'Escribe la clave para corregir votos ya enviados.',
+      input: 'password',
+      inputAttributes: { inputmode: 'numeric', autocomplete: 'off', 'aria-label': 'Clave' },
+      showCancelButton: true,
+      confirmButtonText: 'Entrar',
+      cancelButtonText: 'Cancelar',
+      inputValidator: async (v) => ((await huella(String(v ?? '').trim())) === HUELLA_CLAVE ? null : 'Clave incorrecta'),
+    });
+    if (res.isConfirmed) ponerModoCorreccion(true);
+  }
+
+  document.getElementById('salir-correccion')?.addEventListener('click', () => ponerModoCorreccion(false));
+
+  // Solo el administrador entra al modo corrección (sin Supabase, quien usa este navegador).
+  let correccionPedida = false;
+  alRol((rol) => {
+    const esAdmin = !nubeActiva || rol === 'admin';
+    if (modoCorreccion && nubeActiva && rol !== undefined && !esAdmin) ponerModoCorreccion(false);
+    if (!pideCorreccion || correccionPedida || (nubeActiva && rol === undefined)) return;
+    correccionPedida = true;
+    history.replaceState(null, '', location.pathname);
+    if (!esAdmin) {
+      Swal.fire({
+        ...swalConfig(),
+        icon: 'error',
+        title: 'Solo el administrador',
+        text: 'El modo corrección es solo para cuentas de administrador.',
+      });
+      return;
+    }
+    if (!modoCorreccion) pedirClaveCorreccion();
+  });
+  modoCorreccionEl.hidden = !modoCorreccion;
+  document.body.classList.toggle('modo-correccion', modoCorreccion);
+
   pintar();
   conectar(d, pintar);
 </script>
@@ -897,6 +977,29 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     .dock-limpiar-texto {
       display: none;
     }
+  }
+
+  /* ================= Modo corrección (administrador) ================= */
+  .chip-correccion {
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  .enlace-salir {
+    border: none;
+    background: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  :global(body.modo-correccion) .dock-inner {
+    border-color: var(--warn);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--warn) 35%, transparent),
+      0 12px 32px -4px rgb(0 0 0 / 0.18);
   }
 
   /* ================= SweetAlert2 Theme ================= */
